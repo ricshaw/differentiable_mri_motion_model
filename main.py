@@ -115,7 +115,7 @@ def translate_np(F, ktraj, t):
 
 def sample_movements(n_movements):
     affines = []
-    angles = torch.FloatTensor(n_movements+1,).uniform_(-1.0, 1.0).to(device)
+    angles = torch.FloatTensor(n_movements+1,).uniform_(-0.0, 0.0).to(device)
     trans = torch.FloatTensor(n_movements+1,2).uniform_(-50.0, 50.0).to(device)
     #affines.append(torch.eye(3))
     for i in range(n_movements+1):
@@ -123,7 +123,7 @@ def sample_movements(n_movements):
         t = trans[i,:]
         A = torch.eye(3).to(device)
         R = rotation_matrix(ang).to(device)
-        #A[:2,:2] = R
+        A[:2,:2] = R
         A[:2,2] = t.to(device)
         print(A)
         affines.append(A)
@@ -303,11 +303,11 @@ def gen_movement(image, n_movements, locs, debug=False):
     #ky_new = np.zeros_like(ky)
     for i in range(len(affines)):
         R = affines[i][:2,:2].to(device)
-        ktraj = rotate(ktraj, R)
-        #ktraj = rotate_np(ktraj, R)
-        ktrajs.append(ktraj)
-        kxi, kyi = to_2d(ktraj, nlines, klen)
-        #kxi, kyi = to_2d_np(ktraj, nlines, klen)
+        ktraji = rotate(ktraj, R)
+        #ktraji = rotate_np(ktraj, R)
+        ktrajs.append(ktraji)
+        kxi, kyi = to_2d(ktraji, nlines, klen)
+        #kxi, kyi = to_2d_np(ktraji, nlines, klen)
         kx_new += masks[i] * kxi
         ky_new += masks[i] * kyi
 
@@ -505,6 +505,12 @@ if __name__ == '__main__':
     ts = ts_init.clone().detach()
     ts.requires_grad = True
     print(ts)
+
+    angles_init = 0.0*torch.randn(n_movements+1, 2, dtype=torch.float32, device=device)
+    angles_init[0,:] = 0.
+    angles = angles_init.clone().detach()
+    angles.requires_grad = True
+    print(angles)
 
     optimizer = torch.optim.Adam([ts], lr=1.)
     print('optimising for:', ts.dtype, ts.shape)
