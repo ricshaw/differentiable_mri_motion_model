@@ -55,7 +55,8 @@ def plot_ktraj(kx, ky):
     plt.show()
 
 def rotation_matrix(ang):
-    ang = torch.deg2rad(ang)
+    #ang = torch.deg2rad(ang)
+    ang = ang * 3.14159 / 180.0
     return torch.tensor([[torch.cos(ang), -torch.sin(ang)],
                          [torch.sin(ang), torch.cos(ang)]], device=device)
 
@@ -378,7 +379,7 @@ def gen_movement_opt(image, n_movements, locs, ts):
     # Convert image to tensor and unsqueeze coil and batch dimension
     im_size = image.shape
     image = image.to(dtype).unsqueeze(0).unsqueeze(0).to(device)
-    print('image shape: {}'.format(image.shape), image.dtype)
+    #print('image shape: {}'.format(image.shape), image.dtype)
 
     # Create a k-space trajectory
     sampling_rate = 1.5
@@ -390,15 +391,15 @@ def gen_movement_opt(image, n_movements, locs, ts):
     ktraj = to_1d(kx, ky).to(device)
     korig = ktraj.clone()
 
-    mid = kx.shape[0]//2
+    #mid = kx.shape[0]//2
     #b = int(kx.shape[0] * 3/100.0)
-    b = 0
+    #b = 0
 
     # Generate k-space masks
     masks = gen_masks(n_movements, locs, nlines, klen)
 
     ktraj = torch.tensor(ktraj).to(torch.float32).to(device)
-    print('ktraj shape: {}'.format(ktraj.shape), ktraj.dtype)
+    #print('ktraj shape: {}'.format(ktraj.shape), ktraj.dtype)
 
     # create NUFFT objects, use 'ortho' for orthogonal FFTs
     nufft_ob = tkbn.KbNufft(
@@ -415,7 +416,7 @@ def gen_movement_opt(image, n_movements, locs, ts):
 
     # Calculate k-space data
     kdata = nufft_ob(image, korig).to(device)
-    print('kdata', kdata.shape, kdata.dtype)
+    #print('kdata', kdata.shape, kdata.dtype)
 
     # Apply translational component
     print('Applying translational component')
@@ -426,12 +427,11 @@ def gen_movement_opt(image, n_movements, locs, ts):
         print(i,t)
         kdata_i = translate_opt(kdata, ktraj, t)
         kdata_new += masks[i] * kdata_i
-    kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
+    #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
     kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
 
     # adjnufft back
     image_out = adjnufft_ob(kdata, ktraj)
-
     image_out = torch.abs(image_out.squeeze())
     image_out = (image_out - image_out.min()) / (image_out.max() - image_out.min())
     return image_out, kdata
