@@ -552,6 +552,7 @@ if __name__ == '__main__':
         loss = loss1 + loss2 + loss3 + loss4 + loss5
         print('iter:', i, 'losses:', loss1.item(), loss2.item(), loss3.item(), loss4.item(), loss5.item())
         print('ts:', ts.detach().cpu().numpy())
+        print('angles:', angles.detach().cpu().numpy())
         loss.backward()
         optimizer.step()
 
