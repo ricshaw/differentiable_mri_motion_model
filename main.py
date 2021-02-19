@@ -45,8 +45,10 @@ def plot_kdata(kdata):
     plt.title('k-space data, log10 scale')
 
 def plot_ktraj(kx, ky):
+    kx_np = kx.detach().cpu().numpy()
+    ky_np = ky.detach().cpu().numpy()
     plt.figure()
-    plt.plot(kx[:, :].T, -ky[:, :].T)
+    plt.plot(kx_np[:,:].T, -ky_np[:,:].T)
     plt.axis('equal')
     plt.title('k-space trajectory')
     plt.tight_layout()
@@ -55,7 +57,7 @@ def plot_ktraj(kx, ky):
 def rotation_matrix(ang):
     ang = torch.deg2rad(ang)
     return torch.tensor([[torch.cos(ang), -torch.sin(ang)],
-                         [torch.sin(ang), torch.cos(ang)]])
+                         [torch.sin(ang), torch.cos(ang)]], device=device)
 
 def rotation_matrix_np(ang):
     ang = np.deg2rad(ang)
@@ -112,10 +114,10 @@ def translate_np(F, ktraj, t):
 
 def sample_movements(n_movements):
     affines = []
-    angles = torch.FloatTensor(n_movements,).uniform_(-1.0, 1.0).to(device)
-    trans = torch.FloatTensor(n_movements,2).uniform_(-20.0, 20.0).to(device)
-    affines.append(torch.eye(3))
-    for i in range(n_movements):
+    angles = torch.FloatTensor(n_movements+1,).uniform_(-1.0, 1.0).to(device)
+    trans = torch.FloatTensor(n_movements+1,2).uniform_(-50.0, 50.0).to(device)
+    #affines.append(torch.eye(3))
+    for i in range(n_movements+1):
         ang = angles[i]
         t = trans[i,:]
         A = torch.eye(3).to(device)
@@ -195,7 +197,7 @@ def gen_masks(n_movements, locs, nlines, klen):
         mask[locs[-1]::,:] = 1
         masks.append(mask)
     else:
-        masks.append(torch.ones((nlines, klen)))
+        masks.append(torch.ones((nlines, klen), device=device))
     return masks
 
 def gen_masks_np(n_movements, nlines, klen):
@@ -290,12 +292,12 @@ def gen_movement(image, n_movements, locs, debug=False):
         n_plots = np.minimum(10,len(masks))
         for i in range(n_plots):
             ax = fig.add_subplot(1,n_plots,i+1)
-            plt.imshow(masks[i])
+            plt.imshow(masks[i].detach().cpu().numpy())
 
     # Apply rotation component
     ktrajs = []
-    kx_new = torch.zeros_like(kx)
-    ky_new = torch.zeros_like(ky)
+    kx_new = torch.zeros_like(kx, device=device)
+    ky_new = torch.zeros_like(ky, device=device)
     #kx_new = np.zeros_like(kx)
     #ky_new = np.zeros_like(ky)
     for i in range(len(affines)):
@@ -337,8 +339,8 @@ def gen_movement(image, n_movements, locs, debug=False):
         grid_size=grid_size,
         ).to(image).to(device)
 
-    print(nufft_ob)
-    print(adjnufft_ob)
+    #print(nufft_ob)
+    #print(adjnufft_ob)
 
     # Calculate k-space data
     kdata = nufft_ob(image, korig).to(device)
@@ -408,8 +410,8 @@ def gen_movement_opt(image, n_movements, locs, ts):
         grid_size=grid_size,
         ).to(image).to(device)
 
-    print(nufft_ob)
-    print(adjnufft_ob)
+    #print(nufft_ob)
+    #print(adjnufft_ob)
 
     # Calculate k-space data
     kdata = nufft_ob(image, korig).to(device)
@@ -447,9 +449,9 @@ if __name__ == '__main__':
     # Generate movement
     sampling_rate = 1.5
     nlines = int(image.shape[0] * sampling_rate)
-    n_movements = 20
+    n_movements = 10
     locs = sorted(np.random.choice(nlines, n_movements))
-    image_out, kdata_out = gen_movement(image, n_movements, locs, debug=False)
+    image_out, kdata_out = gen_movement(image, n_movements, locs, debug=True)
 
 
     # Show the images
