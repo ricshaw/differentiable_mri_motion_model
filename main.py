@@ -115,8 +115,8 @@ def translate_np(F, ktraj, t):
 
 def sample_movements(n_movements):
     affines = []
-    angles = torch.FloatTensor(n_movements+1,).uniform_(-0.0, 0.0).to(device)
-    trans = torch.FloatTensor(n_movements+1,2).uniform_(-50.0, 50.0).to(device)
+    angles = torch.FloatTensor(n_movements+1,).uniform_(-45.0, -45.0).to(device)
+    trans = torch.FloatTensor(n_movements+1,2).uniform_(-10.0, 10.0).to(device)
     #affines.append(torch.eye(3))
     for i in range(n_movements+1):
         ang = angles[i]
@@ -374,7 +374,7 @@ def gen_movement(image, n_movements, locs, debug=False):
     return image_out, kdata
 
 
-def gen_movement_opt(image, n_movements, locs, ts):
+def gen_movement_opt(image, n_movements, locs, ts, angles):
 
     # Convert image to tensor and unsqueeze coil and batch dimension
     im_size = image.shape
@@ -397,6 +397,21 @@ def gen_movement_opt(image, n_movements, locs, ts):
 
     # Generate k-space masks
     masks = gen_masks(n_movements, locs, nlines, klen)
+
+    # Apply rotation component
+    ktrajs = []
+    kx_new = torch.zeros_like(kx, device=device)
+    ky_new = torch.zeros_like(ky, device=device)
+    for i in range(len(angles)):
+        #R = affines[i][:2,:2].to(device)
+        R = rotation_matrix(angles[i])
+        ktraji = rotate(ktraj, R)
+        ktrajs.append(ktraji)
+        kxi, kyi = to_2d(ktraji, nlines, klen)
+        kx_new += masks[i] * kxi
+        ky_new += masks[i] * kyi
+
+    ktraj = to_1d(kx_new, ky_new)
 
     ktraj = torch.tensor(ktraj).to(torch.float32).to(device)
     #print('ktraj shape: {}'.format(ktraj.shape), ktraj.dtype)
@@ -506,8 +521,9 @@ if __name__ == '__main__':
     ts.requires_grad = True
     print(ts)
 
-    angles_init = 0.0*torch.randn(n_movements+1, 2, dtype=torch.float32, device=device)
-    angles_init[0,:] = 0.
+    #angles_init = 0.0*torch.randn(n_movements+1, 1, dtype=torch.float32, device=device)
+    angles_init = torch.FloatTensor(n_movements+1,).uniform_(-45.0, -45.0).to(device)
+    #angles_init[0,:] = 0.
     angles = angles_init.clone().detach()
     angles.requires_grad = True
     print(angles)
@@ -526,7 +542,7 @@ if __name__ == '__main__':
     for i in range(n_iter):
         optimizer.zero_grad()
 
-        image_out, kdata_out = gen_movement_opt(image, n_movements, locs, ts)
+        image_out, kdata_out = gen_movement_opt(image, n_movements, locs, ts, angles)
 
         loss1 = 200. * l1_loss(image_out, target)
         loss2 = 50. * ms_ssim_loss(image_out, target)
