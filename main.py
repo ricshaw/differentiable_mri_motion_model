@@ -13,7 +13,6 @@ from pytorch3d.transforms.so3 import (
 )
 
 dtype = torch.complex64
-#device = 'cpu'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
 
@@ -66,8 +65,7 @@ def plot_ktraj_image(kx, ky):
     plt.show()
 
 def rotation_matrix(ang):
-    #ang = torch.deg2rad(ang)
-    ang = ang * 3.14159 / 180.0
+    ang = torch.deg2rad(ang)
     return torch.tensor([[torch.cos(ang), -torch.sin(ang)],
                          [torch.sin(ang), torch.cos(ang)]], device=device)
 
@@ -258,7 +256,7 @@ def to_2d_np(ktraj, nlines, klen):
     ky = np.reshape(ky, (nlines, klen))
     return kx, ky
 
-def gen_movement(image, n_movements, locs, debug=False):
+def gen_movement(image, n_movements, locs, sampling_rate, debug=False):
 
     # Convert image to tensor and unsqueeze coil and batch dimension
     im_size = image.shape
@@ -266,7 +264,6 @@ def gen_movement(image, n_movements, locs, debug=False):
     print('image shape: {}'.format(image.shape))
 
     # Create a k-space trajectory
-    sampling_rate = 1.5
     klen = int(image.shape[-1] * sampling_rate)
     nlines = int(image.shape[-2] * sampling_rate)
     grid_size = (nlines, klen)
@@ -275,24 +272,17 @@ def gen_movement(image, n_movements, locs, debug=False):
     kx, ky = gen_ktraj(nlines, klen)
     kx = kx.to(device)
     ky = ky.to(device)
-    #kx_np, ky_np = gen_ktraj_np(nlines, klen)
 
     ktraj = to_1d(kx, ky).to(device)
-    #ktraj = to_1d_np(kx, ky)
     korig = ktraj.clone()
-    #korig = ktraj.copy()
-    #korig = torch.tensor(korig).to(torch.float)
 
     affines = sample_movements(n_movements)
-    #affines = sample_movements_log(n_movements)
-    #affines = sample_movements_np(n_movements)
 
     # Combine affines
     #affines = combine_affines(affines)
 
     # Generate k-space masks
     masks = gen_masks(n_movements, locs, nlines, klen)
-    #masks = gen_masks_np(n_movements, nlines, klen)
     if debug:
         fig = plt.figure()
         n_plots = np.minimum(10,len(masks))
@@ -304,15 +294,11 @@ def gen_movement(image, n_movements, locs, debug=False):
     ktrajs = []
     kx_new = torch.zeros_like(kx, device=device)
     ky_new = torch.zeros_like(ky, device=device)
-    #kx_new = np.zeros_like(kx)
-    #ky_new = np.zeros_like(ky)
     for i in range(len(affines)):
         R = affines[i][:2,:2].to(device)
         ktraji = rotate(ktraj, R)
-        #ktraji = rotate_np(ktraj, R)
         ktrajs.append(ktraji)
         kxi, kyi = to_2d(ktraji, nlines, klen)
-        #kxi, kyi = to_2d_np(ktraji, nlines, klen)
         kx_new += masks[i] * kxi
         ky_new += masks[i] * kyi
 
@@ -322,11 +308,7 @@ def gen_movement(image, n_movements, locs, debug=False):
     print('k-space centre:', b)
     kx_new[mid-b:mid+b,:] = kx[mid-b:mid+b,:]
     ky_new[mid-b:mid+b,:] = ky[mid-b:mid+b,:]
-
     ktraj = to_1d(kx_new, ky_new)
-    #ktraj = to_1d_np(kx_new, ky_new)
-    #kx, ky = to_2d(ktraj, nlines, klen)
-    #kx, ky = to_2d_np(ktraj, nlines, klen)
 
     # Plot ktraj
     if debug:
@@ -346,9 +328,6 @@ def gen_movement(image, n_movements, locs, debug=False):
         grid_size=grid_size,
         ).to(image).to(device)
 
-    #print(nufft_ob)
-    #print(adjnufft_ob)
-
     # Calculate k-space data
     kdata = nufft_ob(image, korig).to(device)
     print('kdata', kdata.shape)
@@ -356,15 +335,11 @@ def gen_movement(image, n_movements, locs, debug=False):
     # Apply translational component
     print('Applying translational component')
     kdata = torch.reshape(kdata, (nlines, klen))
-    #kdata = np.reshape(kdata, (nlines, klen))
     kdata_new = torch.zeros_like(kdata)
-    #kdata_new = np.zeros_like(kdata)
     for i in range(len(masks)):
         t = affines[i][:2,2]
         print(i,t)
-        #kdata_i = translate(kdata, ktraj, t)
         kdata_i = translate_opt(kdata, ktraj, t)
-        #kdata_i = translate_np(kdata, ktraj, t)
         kdata_new += masks[i] * kdata_i
     kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
     kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
@@ -376,33 +351,10 @@ def gen_movement(image, n_movements, locs, debug=False):
 
     # adjnufft back
     image_out = adjnufft_ob(kdata, ktraj)
-
     return image_out, kdata, kx_new, ky_new
 
 
 def gen_movement_opt(image, n_movements, locs, ts, angles, kdata, korig, kx, ky, klen, nlines, im_size, adjnufft_ob, masks):
-
-    # Convert image to tensor and unsqueeze coil and batch dimension
-    #im_size = image.shape
-    #image = image.to(dtype).unsqueeze(0).unsqueeze(0).to(device)
-    #print('image shape: {}'.format(image.shape), image.dtype)
-
-    # Create a k-space trajectory
-    #sampling_rate = 1.5
-    #klen = int(image.shape[-1] * sampling_rate)
-    #nlines = int(image.shape[-2] * sampling_rate)
-    #grid_size = (nlines, klen)
-
-    #kx, ky = gen_ktraj(nlines, klen)
-    #ktraj = to_1d(kx, ky).to(device)
-    #korig = ktraj.clone()
-
-    #mid = kx.shape[0]//2
-    #b = int(kx.shape[0] * 3/100.0)
-    #b = 0
-
-    # Generate k-space masks
-    #masks = gen_masks(n_movements, locs, nlines, klen)
 
     # Apply rotation component
     kx_new = torch.zeros_like(kx, device=device)
@@ -414,28 +366,6 @@ def gen_movement_opt(image, n_movements, locs, ts, angles, kdata, korig, kx, ky,
         kx_new += masks[i] * kxi
         ky_new += masks[i] * kyi
 
-    #ktraj = torch.stack((ky_new.flatten(), kx_new.flatten()))
-    #ktraj = to_1d(kx_new, ky_new)
-    #ktraj = torch.tensor(ktraj).to(torch.float32).to(device)
-    #print('ktraj shape: {}'.format(ktraj.shape), ktraj.dtype)
-
-    # create NUFFT objects, use 'ortho' for orthogonal FFTs
-    #nufft_ob = tkbn.KbNufft(
-    #    im_size=im_size,
-    #    grid_size=grid_size,
-    #    ).to(dtype).to(device)
-    #adjnufft_ob = tkbn.KbNufftAdjoint(
-    #    im_size=im_size,
-    #    grid_size=grid_size,
-    #    ).to(image).to(device)
-
-    #print(nufft_ob)
-    #print(adjnufft_ob)
-
-    # Calculate k-space data
-    #kdata = nufft_ob(image, korig).to(device)
-    #print('kdata', kdata.shape, kdata.dtype)
-
     # Apply translational component
     if True:
         print('Applying translational component')
@@ -444,17 +374,13 @@ def gen_movement_opt(image, n_movements, locs, ts, angles, kdata, korig, kx, ky,
         for i in range(len(masks)):
             t = ts[i]
             print(i,t)
-            #kdata_i = translate_opt(kdata, ktraj, t)
             kdata_i = translate_opt(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())), t)
-            #kdata_i = translate_opt(kdata, torch.stack((ky.flatten(), kx.flatten())), t)
             kdata_new += masks[i] * kdata_i
         #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
         kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
 
     # adjnufft back
-    #image_out = adjnufft_ob(kdata, ktraj)
     image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())))
-    #image_out = adjnufft_ob(kdata, torch.stack((ky.flatten(), kx.flatten())))
     image_out = torch.abs(image_out.squeeze())
     image_out = (image_out - image_out.min()) / (image_out.max() - image_out.min())
     return image_out, kdata, kx_new, ky_new
@@ -468,14 +394,16 @@ if __name__ == '__main__':
     plt.title('Input image')
     plt.tight_layout()
 
-
     # Generate movement
-    sampling_rate = 1.5
-    nlines = int(image.shape[0] * sampling_rate)
+    sampling_rate = 2.0
+    nlines = int(image.shape[-2] * sampling_rate)
     n_movements = 10
     locs = sorted(np.random.choice(nlines, n_movements))
-    image_out, kdata_out, kx_out, ky_out = gen_movement(image, n_movements, locs, debug=True)
-
+    image_out, kdata_out, kx_out, ky_out = gen_movement(image,
+                                                        n_movements,
+                                                        locs,
+                                                        sampling_rate,
+                                                        debug=True)
 
     # Show the images
     image_out_np = np.abs(np.squeeze(image_out.detach().cpu().numpy()))
@@ -529,7 +457,6 @@ if __name__ == '__main__':
     image_tensor = image.to(dtype).unsqueeze(0).unsqueeze(0).to(device)
 
     # Create a k-space trajectory
-    sampling_rate = 1.5
     klen = int(image.shape[1] * sampling_rate)
     nlines = int(image.shape[0] * sampling_rate)
     grid_size = (nlines, klen)
