@@ -539,9 +539,6 @@ if __name__ == '__main__':
     ky = ky_init.clone().detach()
     kx.requires_grad = False
     ky.requires_grad = False
-    #ktraj = to_1d(kx, ky).to(device)
-    #ktraj.requires_grad = True
-    #korig = ktraj.clone().detach()
     korig = torch.stack((ky_init.flatten(), kx_init.flatten()))
 
     nufft_ob = tkbn.KbNufft(
@@ -569,7 +566,6 @@ if __name__ == '__main__':
 
     #angles_init = 0.0*torch.randn(n_movements+1, 1, dtype=torch.float32, device=device)
     angles_init = torch.FloatTensor(n_movements+1,).uniform_(-25.0, -25.0).to(device)
-    #angles_init[0,:] = 0.
     angles = angles_init.clone().detach()
     angles.requires_grad = True
     print(angles)
