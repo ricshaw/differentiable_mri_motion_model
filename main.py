@@ -106,14 +106,10 @@ def translate(F, ktraj, t):
 
 def translate_opt(F, ktraj, t):
     shape = F.shape
-
     phase = torch.matmul(t.to(torch.float32).to(device), ktraj.to(device))
-    #phase = t[0,0] * ktraj[0,...] + t[0,1] * ktraj[1,...]
-
     shift_real = torch.cos(phase)
     shift_imag = torch.sin(phase)
     shift = torch.complex(shift_real, shift_imag).to(device)
-
     F = shift * F.flatten()
     return torch.reshape(F, shape)
 
@@ -412,12 +408,9 @@ def gen_movement_opt(image, n_movements, locs, ts, angles, kdata, korig, kx, ky,
     kx_new = torch.zeros_like(kx, device=device)
     ky_new = torch.zeros_like(ky, device=device)
     for i in range(len(angles)):
-        kyi = torch.cos(angles[i] * 3.14159/180.0)*ky - torch.sin(angles[i] * 3.14159/180.0)*kx
-        kxi = torch.sin(angles[i] * 3.14159/180.0)*ky + torch.cos(angles[i] * 3.14159/180.0)*kx
-        #R = rotation_matrix(angles[i])
-        #ktraji = rotate(ktraj, R)
-        #ktraji = rotate(torch.stack((ky.flatten(), kx.flatten())), R)
-        #kxi, kyi = to_2d(ktraji, nlines, klen)
+        ang = torch.deg2rad(angles[i])
+        kyi = torch.cos(ang)*ky - torch.sin(ang)*kx
+        kxi = torch.sin(ang)*ky + torch.cos(ang)*kx
         kx_new += masks[i] * kxi
         ky_new += masks[i] * kyi
 
@@ -479,7 +472,7 @@ if __name__ == '__main__':
     # Generate movement
     sampling_rate = 1.5
     nlines = int(image.shape[0] * sampling_rate)
-    n_movements = 4
+    n_movements = 10
     locs = sorted(np.random.choice(nlines, n_movements))
     image_out, kdata_out, kx_out, ky_out = gen_movement(image, n_movements, locs, debug=True)
 
