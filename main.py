@@ -412,8 +412,7 @@ if __name__ == '__main__':
 
     # Show the images
     image_out_np = np.abs(np.squeeze(image_out.detach().cpu().numpy()))
-    image_out_np -= image_out_np.min()
-    image_out_np /= image_out_np.max()
+    image_out_np = utils.normalise_image(image_out_np)
     plt.figure()
     plt.imshow(image_out_np, cmap='gray', vmin=0, vmax=1)
     plt.title('Output image')
