@@ -1,8 +1,11 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import cv2
+import nibabel as nib
 import torch
 import torch.nn as nn
 import torchkbnufft as tkbn
+import utils
 from skimage.data import shepp_logan_phantom
 from scipy.linalg import logm, expm
 from piq import ssim, SSIMLoss, MultiScaleSSIMLoss, VSILoss
@@ -381,7 +384,7 @@ def gen_movement_opt(image, n_movements, locs, ts, angles, kdata, korig, kx, ky,
 
     # adjnufft back
     image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())))
-    image_out = torch.abs(image_out.squeeze())
+    image_out = torch.abs(image_out).to(float)
     image_out = (image_out - image_out.min()) / (image_out.max() - image_out.min())
     return image_out, kdata, kx_new, ky_new
 
@@ -389,14 +392,16 @@ def gen_movement_opt(image, n_movements, locs, ts, angles, kdata, korig, kx, ky,
 if __name__ == '__main__':
 
     # Create a simple shepp logan phantom and plot it
-    image = shepp_logan_phantom().astype(np.complex)
+    #image = shepp_logan_phantom() #.astype(np.complex)
+    image = utils.load_png('./data/sample_2d.png')
+    image = utils.normalise_image(image).astype(np.complex)
     plt.imshow(np.abs(image), cmap='gray', vmin=0, vmax=1)
     plt.title('Input image')
     plt.tight_layout()
 
     # Generate movement
     sampling_rate = 2.0
-    nlines = int(image.shape[-2] * sampling_rate)
+    nlines = int(image.shape[0] * sampling_rate)
     n_movements = 10
     locs = sorted(np.random.choice(nlines, n_movements))
     image_out, kdata_out, kx_out, ky_out = gen_movement(image,
@@ -426,7 +431,7 @@ if __name__ == '__main__':
 
 
     target = image_out.clone().to(float)
-    target = torch.abs(target.squeeze())
+    target = torch.abs(target)
     target = (target - target.min()) / (target.max() - target.min())
     target.requires_grad = False
 
@@ -448,7 +453,7 @@ if __name__ == '__main__':
     fig, axs = plt.subplots(1,2)
     axs[0].imshow(image.detach().cpu().numpy(), cmap='gray')
     axs[0].set_title('start')
-    axs[1].imshow(target.detach().cpu().numpy(), cmap='gray')
+    axs[1].imshow(target.squeeze().detach().cpu().numpy(), cmap='gray')
     axs[1].set_title('target')
     plt.show()
 
@@ -502,10 +507,10 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam([ts, angles], lr=1.)
     #optimizer = torch.optim.Adam([ts, kx, ky], lr=1.)
 
+    l1_loss = nn.L1Loss()
     #ssim_loss = SSIMLoss(data_range=1.)
     ms_ssim_loss = MultiScaleSSIMLoss()
-    vsi_loss = VSILoss()
-    l1_loss = nn.L1Loss()
+    #vsi_loss = VSILoss()
 
     fig, axs = plt.subplots(1,3)
     n_iter = 1000
@@ -515,16 +520,16 @@ if __name__ == '__main__':
 
         #angles = angles - 2
         image_out, kdata_out, kx_new, ky_new = gen_movement_opt(image_tensor, n_movements, locs, ts, angles, kdata, korig, kx, ky, klen, nlines, im_size, adjnufft_ob, masks)
+        print('output:', image_out.shape, image_out.dtype, 'target:', target.shape, target.dtype)
 
         loss1 = 200. * l1_loss(image_out, target)
         loss2 = 50. * ms_ssim_loss(image_out, target)
-        loss3 = 200. * vsi_loss(image_out, target)
-        loss4 = l1_loss(kdata_out.real, kdata_target.real)
-        loss5 = l1_loss(kdata_out.imag, kdata_target.imag)
-        loss6 = 100. * l1_loss(kx_new, kx_target)
-        loss7 = 100. * l1_loss(ky_new, ky_target)
-        loss = loss1 + loss2 + loss3 + loss4 + loss5 + loss6 + loss7
-        print('iter:', i, 'losses:', loss1.item(), loss2.item(), loss3.item(), loss4.item(), loss5.item(), loss6.item(), loss7.item())
+        loss3 = l1_loss(kdata_out.real, kdata_target.real)
+        loss4 = l1_loss(kdata_out.imag, kdata_target.imag)
+        loss5 = 100. * l1_loss(kx_new, kx_target)
+        loss6 = 100. * l1_loss(ky_new, ky_target)
+        loss = loss1 + loss2 + loss3 + loss4 + loss5 + loss6
+        print('iter:', i, 'losses:', loss1.item(), loss2.item(), loss3.item(), loss4.item(), loss5.item(), loss6.item())
         print('ts:', ts.detach().cpu().numpy())
         print('angles:', angles.detach().cpu().numpy())
         loss.backward()
@@ -535,10 +540,10 @@ if __name__ == '__main__':
 
         if True:
             axs[0].clear()
-            axs[0].imshow(image_out.detach().cpu().numpy(), cmap='gray')
+            axs[0].imshow(image_out.squeeze().detach().cpu().numpy(), cmap='gray')
             axs[0].set_title('iter: %d' % i)
             axs[1].clear()
-            axs[1].imshow(target.detach().cpu().numpy(), cmap='gray')
+            axs[1].imshow(target.squeeze().detach().cpu().numpy(), cmap='gray')
             axs[1].set_title('target')
             axs[2].clear()
             axs[2].plot(losses)
