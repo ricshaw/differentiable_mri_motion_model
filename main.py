@@ -190,23 +190,21 @@ def combine_affines(affines):
         Aprev = combinedA
     return combinedAffines
 
-def gen_masks(n_movements, locs, nlines, klen):
+def gen_masks(n_movements, locs, grid_size):
     masks = []
     if n_movements > 0:
-        #lines = torch.randperm(nlines)[:n_movements]
-        #lines, _ = torch.sort(lines)
-        mask = torch.zeros((nlines, klen), device=device)
+        mask = torch.zeros(grid_size, device=device)
         mask[0:locs[0],:] = 1
         masks.append(mask)
         for i in range(1,n_movements):
-            mask = torch.zeros((nlines, klen), device=device)
+            mask = torch.zeros(grid_size, device=device)
             mask[locs[i-1]:locs[i],:] = 1
             masks.append(mask)
-        mask = torch.zeros((nlines, klen), device=device)
+        mask = torch.zeros(grid_size, device=device)
         mask[locs[-1]::,:] = 1
         masks.append(mask)
     else:
-        masks.append(torch.ones((nlines, klen), device=device))
+        masks.append(torch.ones(grid_size, device=device))
     return masks
 
 def gen_masks_np(n_movements, nlines, klen):
@@ -252,9 +250,9 @@ def to_1d(kx, ky):
 def to_1d_np(kx, ky):
     return np.stack((ky.flatten(), kx.flatten()))
 
-def to_2d(ktraj, nlines, klen):
-    kx = torch.reshape(ktraj[1,...], (nlines, klen))
-    ky = torch.reshape(ktraj[0,...], (nlines, klen))
+def to_2d(ktraj, grid_size):
+    kx = torch.reshape(ktraj[1,...], grid_size)
+    ky = torch.reshape(ktraj[0,...], grid_size)
     return kx, ky
 
 def to_2d_np(ktraj, nlines, klen):
@@ -264,7 +262,7 @@ def to_2d_np(ktraj, nlines, klen):
     ky = np.reshape(ky, (nlines, klen))
     return kx, ky
 
-def gen_movement(image, kx, ky, grid_size, n_movements, locs, debug=False):
+def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=None, debug=False):
 
     # Convert image to tensor and unsqueeze coil and batch dimension
     im_size = image.shape
@@ -274,14 +272,12 @@ def gen_movement(image, kx, ky, grid_size, n_movements, locs, debug=False):
     # Build ktraj
     ktraj = to_1d(kx, ky).to(device)
     korig = ktraj.clone()
-    kr = grid_size[0]
-    kc = grid_size[1]
 
     affines = sample_movements(n_movements)
     #affines = combine_affines(affines)
 
     # Generate k-space masks
-    masks = gen_masks(n_movements, locs, kr, kc)
+    masks = gen_masks(n_movements, locs, grid_size)
     if debug:
         fig = plt.figure()
         n_plots = np.minimum(10,len(masks))
@@ -297,7 +293,7 @@ def gen_movement(image, kx, ky, grid_size, n_movements, locs, debug=False):
         R = affines[i][:2,:2].to(device)
         ktraji = rotate(ktraj, R)
         ktrajs.append(ktraji)
-        kxi, kyi = to_2d(ktraji, kr, kc)
+        kxi, kyi = to_2d(ktraji, grid_size)
         kx_new += masks[i] * kxi
         ky_new += masks[i] * kyi
 
@@ -333,7 +329,7 @@ def gen_movement(image, kx, ky, grid_size, n_movements, locs, debug=False):
 
     # Apply translational component
     print('Applying translational component')
-    kdata = torch.reshape(kdata, (kr, kc))
+    kdata = torch.reshape(kdata, grid_size)
     kdata_new = torch.zeros_like(kdata)
     for i in range(len(masks)):
         t = affines[i][:2,2]
@@ -424,9 +420,10 @@ if __name__ == '__main__':
     n_movements = 10
     locs = sorted(np.random.choice(kr, n_movements))
     image_out, kdata_out, kx_out, ky_out = gen_movement(image,
-                                                        kx, ky, grid_size,
-                                                        n_movements,
-                                                        locs,
+                                                        kx, ky, kz=None,
+                                                        grid_size=grid_size,
+                                                        n_movements=n_movements,
+                                                        locs=locs,
                                                         debug=True)
 
     # Show the images
@@ -499,7 +496,7 @@ if __name__ == '__main__':
     kdata = kdata_orig.clone().detach()
     kdata.requires_grad = True
 
-    masks = gen_masks(n_movements, locs, kr, kc)
+    masks = gen_masks(n_movements, locs, grid_size)
 
     # Optimise
     print('Optimising...')
