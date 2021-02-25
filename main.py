@@ -259,26 +259,18 @@ def to_2d_np(ktraj, nlines, klen):
     ky = np.reshape(ky, (nlines, klen))
     return kx, ky
 
-def gen_movement(image, n_movements, locs, sampling_rate, debug=False):
+def gen_movement(image, kx, ky, grid_size, n_movements, locs, debug=False):
 
     # Convert image to tensor and unsqueeze coil and batch dimension
     im_size = image.shape
     image = torch.tensor(image).to(dtype).unsqueeze(0).unsqueeze(0).to(device)
     print('image shape: {}'.format(image.shape))
 
-    # Create a k-space trajectory
-    klen = int(image.shape[-1] * sampling_rate)
-    nlines = int(image.shape[-2] * sampling_rate)
-    grid_size = (nlines, klen)
-    #nlines = nlines // 4
-
-    kx, ky = gen_ktraj(nlines, klen)
+    # Build ktraj
     ktraj = to_1d(kx, ky).to(device)
     korig = ktraj.clone()
 
     affines = sample_movements(n_movements)
-
-    # Combine affines
     #affines = combine_affines(affines)
 
     # Generate k-space masks
@@ -396,15 +388,21 @@ if __name__ == '__main__':
     plt.title('Input image')
     plt.tight_layout()
 
-    # Generate movement
+    # Create a k-space trajectory
     sampling_rate = 2.0
-    nlines = int(image.shape[0] * sampling_rate)
+    klen = int(image.shape[-1] * sampling_rate)
+    nlines = int(image.shape[-2] * sampling_rate)
+    grid_size = (nlines, klen)
+    #nlines = nlines // 4
+    kx, ky = gen_ktraj(nlines, klen)
+
+    # Generate movement
     n_movements = 10
     locs = sorted(np.random.choice(nlines, n_movements))
     image_out, kdata_out, kx_out, ky_out = gen_movement(image,
+                                                        kx, ky, grid_size,
                                                         n_movements,
                                                         locs,
-                                                        sampling_rate,
                                                         debug=True)
 
     # Show the images
