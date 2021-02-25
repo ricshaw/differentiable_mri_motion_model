@@ -265,6 +265,7 @@ def to_2d_np(ktraj, nlines, klen):
 def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=None, debug=False):
 
     # Convert image to tensor and unsqueeze coil and batch dimension
+    ndims = len(image.shape)
     im_size = image.shape
     image = torch.tensor(image).to(dtype).unsqueeze(0).unsqueeze(0).to(device)
     print('image shape: {}'.format(image.shape))
@@ -280,10 +281,19 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     masks = gen_masks(n_movements, locs, grid_size)
     if debug:
         fig = plt.figure()
-        n_plots = np.minimum(10,len(masks))
-        for i in range(n_plots):
-            ax = fig.add_subplot(1,n_plots,i+1)
-            plt.imshow(masks[i].detach().cpu().numpy())
+        nplots = np.minimum(10,len(masks))
+        for i in range(nplots):
+            m = masks[i].detach().cpu().numpy()
+            if ndims == 2:
+                ax = fig.add_subplot(1,nplots,i+1)
+                plt.imshow(m)
+            if ndims == 3:
+                ax1 = fig.add_subplot(3,nplots,i+1)
+                plt.imshow(m[...,int(m.shape[2]//2)])
+                ax2 = fig.add_subplot(3,nplots,i+1+nplots)
+                plt.imshow(m[:,int(m.shape[1]//2),:])
+                ax3 = fig.add_subplot(3,nplots,i+1+2*nplots)
+                plt.imshow(m[int(m.shape[0]//2),...])
 
     # Apply rotation component
     ktrajs = []
@@ -417,7 +427,7 @@ if __name__ == '__main__':
         kx, ky, kz = gen_ktraj(kr, kc, kd)
 
     # Generate movement
-    n_movements = 10
+    n_movements = 0
     locs = sorted(np.random.choice(kr, n_movements))
     image_out, kdata_out, kx_out, ky_out = gen_movement(image,
                                                         kx, ky, kz=None,
