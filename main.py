@@ -231,9 +231,9 @@ def gen_ktraj(nlines, klen):
     kx = torch.linspace(-np.pi, np.pi, klen)
     ky = torch.linspace(-np.pi, np.pi, nlines)
     kx, ky = torch.meshgrid(kx, ky)
-    kx = kx.T
-    ky = ky.T
-    return kx.to(device), ky.to(device)
+    kx = kx.T.to(device)
+    ky = ky.T.to(device)
+    return kx, ky
 
 def gen_ktraj_np(nlines, klen):
     kx = np.linspace(-np.pi, np.pi, klen)
@@ -273,9 +273,6 @@ def gen_movement(image, n_movements, locs, sampling_rate, debug=False):
     #nlines = nlines // 4
 
     kx, ky = gen_ktraj(nlines, klen)
-    kx = kx.to(device)
-    ky = ky.to(device)
-
     ktraj = to_1d(kx, ky).to(device)
     korig = ktraj.clone()
 
