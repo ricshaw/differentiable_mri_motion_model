@@ -693,6 +693,7 @@ if __name__ == '__main__':
 
 
     fig = plt.figure()
+    plt.tight_layout()
     ims = []
     n_iter = 100
     losses = []
@@ -735,29 +736,37 @@ if __name__ == '__main__':
             if ndims == 2:
                 plt.subplot(1,3,1)
                 plt.title('image')
+                plt.axis('off')
                 im1 = plt.imshow(image_out_np, cmap='gray', animated=True)
                 plt.subplot(1,3,2)
                 plt.title('target')
+                plt.axis('off')
                 im2 = plt.imshow(target_np, cmap='gray', animated=True)
                 plt.subplot(1,3,3)
                 plt.title('loss')
                 plt.xlabel('iterations')
                 im3, = plt.plot(losses, 'b-')
+                plt.subplots_adjust(wspace=0.25)
                 ims.append([im1,im2,im3])
+
             if ndims == 3:
-                plt.tight_layout()
                 plt.subplot(2,4,1)
+                plt.axis('off')
                 im1 = plt.imshow(image_out_np[...,int(image_out_np.shape[2]//2)], cmap='gray')
                 plt.subplot(2,4,2)
                 plt.title('image')
+                plt.axis('off')
                 im2 = plt.imshow(image_out_np[:,int(image_out_np.shape[2]//2),:], cmap='gray')
                 plt.subplot(2,4,3)
+                plt.axis('off')
                 im3 = plt.imshow(image_out_np[int(image_out_np.shape[2]//2),...], cmap='gray')
 
                 plt.subplot(2,4,5)
+                plt.axis('off')
                 im4 = plt.imshow(target_np[...,int(target_np.shape[2]//2)], cmap='gray')
                 plt.subplot(2,4,6)
                 plt.title('target')
+                plt.axis('off')
                 im5 = plt.imshow(target_np[:,int(target_np.shape[2]//2),:], cmap='gray')
                 plt.subplot(2,4,7)
                 im6 = plt.imshow(target_np[int(target_np.shape[2]//2),...], cmap='gray')
@@ -768,10 +777,7 @@ if __name__ == '__main__':
                 im7, = plt.plot(losses, 'b-')
                 ims.append([im1,im2,im3,im4,im5,im6,im7])
 
-    #Writer = animation.writers['ffmpeg']
-    #ffmpeg_writer = Writer(fps=15, metadata=dict(artist='Me'), bitrate=1800)
     ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True)
-    #ani.save('out.mp4', writer=ffmpeg_writer)
     from matplotlib import rcParams
     rcParams['animation.convert_path'] = r'/usr/bin/convert'
     ani.save('out.gif', writer='imagemagick', fps=15)
