@@ -24,6 +24,69 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
 
 
+def animate_2d(ims, image1=None, image2=None, losses=None):
+    h = []
+    if image1 is not None:
+        plt.subplot(1,3,1)
+        plt.title('image')
+        plt.axis('off')
+        im1 = plt.imshow(image1, cmap='gray', animated=True)
+        h += [im1]
+    if image2 is not None:
+        plt.subplot(1,3,2)
+        plt.title('target')
+        plt.axis('off')
+        im2 = plt.imshow(image2, cmap='gray', animated=True)
+        h += [im2]
+    else:
+        h += [ims[0][1]]
+    if losses is not None:
+        plt.subplot(1,3,3)
+        plt.title('loss')
+        plt.xlabel('iterations')
+        im3, = plt.plot(losses, 'b-')
+        plt.subplots_adjust(wspace=0.25)
+        h += [im3]
+    ims.append(h)
+
+def animate_3d(ims, image1=None, image2=None, losses=None):
+    h = []
+    if image1 is not None:
+        plt.subplot(2,4,1)
+        plt.axis('off')
+        im1 = plt.imshow(image1[...,int(image1.shape[2]//2)], cmap='gray')
+        plt.subplot(2,4,2)
+        plt.title('image')
+        plt.axis('off')
+        im2 = plt.imshow(image1[:,int(image1.shape[2]//2),:], cmap='gray')
+        plt.subplot(2,4,3)
+        plt.axis('off')
+        im3 = plt.imshow(image1[int(image1.shape[2]//2),...], cmap='gray')
+        h += [im1,im2,im3]
+    if image2 is not None:
+        plt.subplot(2,4,5)
+        plt.axis('off')
+        im4 = plt.imshow(image2[...,int(image2.shape[2]//2)], cmap='gray')
+        plt.subplot(2,4,6)
+        plt.title('target')
+        plt.axis('off')
+        im5 = plt.imshow(image2[:,int(image2.shape[2]//2),:], cmap='gray')
+        plt.subplot(2,4,7)
+        plt.axis('off')
+        im6 = plt.imshow(image2[int(image2.shape[2]//2),...], cmap='gray')
+        h += [im4,im5,im6]
+    else:
+        h += [ims[0][3],ims[0][4],ims[0][5]]
+    if losses is not None:
+        plt.subplot(2,4,4)
+        plt.title('loss')
+        plt.xlabel('iterations')
+        im7, = plt.plot(losses, 'b-')
+        plt.subplots_adjust(wspace=0.4)
+        h += [im7]
+    ims.append(h)
+
+
 def check(arr1, arr2):
     if torch.is_tensor(arr1):
         arr1 = arr1.detach().numpy()
@@ -505,8 +568,8 @@ if __name__ == '__main__':
 
     # Load image
     #image = shepp_logan_phantom().astype(np.complex)
-    image = utils.load_png('./data/sample_2d.png').astype(np.complex)
-    #image = utils.load_nii_image('./data/sample_3d.nii.gz')
+    #image = utils.load_png('./data/sample_2d.png').astype(np.complex)
+    image = utils.load_nii_image('./data/sample_3d.nii.gz')
     #image = zoom(image, 0.75).astype(np.complex)
     ndims = len(image.shape)
 
@@ -692,10 +755,16 @@ if __name__ == '__main__':
     #vsi_loss = VSILoss()
 
 
+    # Init animation
     fig = plt.figure()
     plt.tight_layout()
     ims = []
-    n_iter = 100
+    if ndims == 2:
+        animate_2d(ims, image_np, target_np, losses=None)
+    if ndims == 3:
+        animate_3d(ims, image_np, target_np, losses=None)
+
+    n_iter = 1000
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()
@@ -728,54 +797,15 @@ if __name__ == '__main__':
         loss.backward()
         print('grads', angles.grad, ts.grad, kx.grad, ky.grad)
         optimizer.step()
-
         losses.append(loss.item())
 
         if True:
             image_out_np = image_out.squeeze().detach().cpu().numpy()
             if ndims == 2:
-                plt.subplot(1,3,1)
-                plt.title('image')
-                plt.axis('off')
-                im1 = plt.imshow(image_out_np, cmap='gray', animated=True)
-                plt.subplot(1,3,2)
-                plt.title('target')
-                plt.axis('off')
-                im2 = plt.imshow(target_np, cmap='gray', animated=True)
-                plt.subplot(1,3,3)
-                plt.title('loss')
-                plt.xlabel('iterations')
-                im3, = plt.plot(losses, 'b-')
-                plt.subplots_adjust(wspace=0.25)
-                ims.append([im1,im2,im3])
+                animate_2d(ims, image_out_np, None, losses)
 
             if ndims == 3:
-                plt.subplot(2,4,1)
-                plt.axis('off')
-                im1 = plt.imshow(image_out_np[...,int(image_out_np.shape[2]//2)], cmap='gray')
-                plt.subplot(2,4,2)
-                plt.title('image')
-                plt.axis('off')
-                im2 = plt.imshow(image_out_np[:,int(image_out_np.shape[2]//2),:], cmap='gray')
-                plt.subplot(2,4,3)
-                plt.axis('off')
-                im3 = plt.imshow(image_out_np[int(image_out_np.shape[2]//2),...], cmap='gray')
-
-                plt.subplot(2,4,5)
-                plt.axis('off')
-                im4 = plt.imshow(target_np[...,int(target_np.shape[2]//2)], cmap='gray')
-                plt.subplot(2,4,6)
-                plt.title('target')
-                plt.axis('off')
-                im5 = plt.imshow(target_np[:,int(target_np.shape[2]//2),:], cmap='gray')
-                plt.subplot(2,4,7)
-                im6 = plt.imshow(target_np[int(target_np.shape[2]//2),...], cmap='gray')
-
-                plt.subplot(2,4,4)
-                plt.title('loss')
-                plt.xlabel('iterations')
-                im7, = plt.plot(losses, 'b-')
-                ims.append([im1,im2,im3,im4,im5,im6,im7])
+                animate_3d(ims, image_out_np, None, losses)
 
     ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True)
     from matplotlib import rcParams
