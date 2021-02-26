@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 import numpy as np
 import cv2
 import nibabel as nib
@@ -10,6 +11,8 @@ from skimage.data import shepp_logan_phantom
 from scipy.linalg import logm, expm
 from scipy.ndimage import zoom
 from piq import ssim, SSIMLoss, MultiScaleSSIMLoss, VSILoss
+import matplotlib
+matplotlib.use("Agg")
 
 from pytorch3d.transforms.so3 import (
     so3_exponential_map,
@@ -19,6 +22,7 @@ from pytorch3d.transforms.so3 import (
 dtype = torch.complex64
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
+
 
 def check(arr1, arr2):
     if torch.is_tensor(arr1):
@@ -501,9 +505,9 @@ if __name__ == '__main__':
 
     # Load image
     #image = shepp_logan_phantom().astype(np.complex)
-    #image = utils.load_png('./data/sample_2d.png').astype(np.complex)
-    image = utils.load_nii_image('./data/sample_3d.nii.gz')
-    image = zoom(image, 0.75).astype(np.complex)
+    image = utils.load_png('./data/sample_2d.png').astype(np.complex)
+    #image = utils.load_nii_image('./data/sample_3d.nii.gz')
+    #image = zoom(image, 0.75).astype(np.complex)
     ndims = len(image.shape)
 
     # Visualise
@@ -517,7 +521,6 @@ if __name__ == '__main__':
         axs[2].imshow(np.abs(image)[int(image.shape[0]//2),...], cmap='gray')
     plt.suptitle('Input image')
     plt.tight_layout()
-    plt.show()
 
     # Create a k-space trajectory
     sampling_rate = 1.0
@@ -688,8 +691,10 @@ if __name__ == '__main__':
     ms_ssim_loss = MultiScaleSSIMLoss()
     #vsi_loss = VSILoss()
 
-    fig, axs = plt.subplots(1,3)
-    n_iter = 1000
+
+    fig = plt.figure()
+    ims = []
+    n_iter = 100
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()
@@ -728,32 +733,51 @@ if __name__ == '__main__':
         if True:
             image_out_np = image_out.squeeze().detach().cpu().numpy()
             if ndims == 2:
-                axs[0].clear()
-                axs[0].imshow(image_out_np, cmap='gray')
-                axs[0].set_title('iter: %d' % i)
-                axs[1].clear()
-                axs[1].imshow(target_np, cmap='gray')
-                axs[1].set_title('target')
-                axs[2].clear()
-                axs[2].plot(losses)
-                axs[2].set_title('loss')
-                axs[2].set_xlabel('iterations')
-                plt.pause(0.0001)
+                plt.subplot(1,3,1)
+                plt.title('image')
+                im1 = plt.imshow(image_out_np, cmap='gray', animated=True)
+                plt.subplot(1,3,2)
+                plt.title('target')
+                im2 = plt.imshow(target_np, cmap='gray', animated=True)
+                plt.subplot(1,3,3)
+                plt.title('loss')
+                plt.xlabel('iterations')
+                im3, = plt.plot(losses, 'b-')
+                ims.append([im1,im2,im3])
             if ndims == 3:
-                axs[0].clear()
-                axs[0].imshow(image_out_np[...,int(image_out_np.shape[2]//2)], cmap='gray')
-                axs[0].set_title('iter: %d' % i)
-                axs[1].clear()
-                axs[1].imshow(target_np[...,int(target_np.shape[2]//2)], cmap='gray')
-                axs[1].set_title('target')
-                axs[2].clear()
-                axs[2].plot(losses)
-                axs[2].set_title('loss')
-                axs[2].set_xlabel('iterations')
-                plt.pause(0.0001)
-                #plt.show()
-                #exit(0)
+                plt.tight_layout()
+                plt.subplot(2,4,1)
+                im1 = plt.imshow(image_out_np[...,int(image_out_np.shape[2]//2)], cmap='gray')
+                plt.subplot(2,4,2)
+                plt.title('image')
+                im2 = plt.imshow(image_out_np[:,int(image_out_np.shape[2]//2),:], cmap='gray')
+                plt.subplot(2,4,3)
+                im3 = plt.imshow(image_out_np[int(image_out_np.shape[2]//2),...], cmap='gray')
 
+                plt.subplot(2,4,5)
+                im4 = plt.imshow(target_np[...,int(target_np.shape[2]//2)], cmap='gray')
+                plt.subplot(2,4,6)
+                plt.title('target')
+                im5 = plt.imshow(target_np[:,int(target_np.shape[2]//2),:], cmap='gray')
+                plt.subplot(2,4,7)
+                im6 = plt.imshow(target_np[int(target_np.shape[2]//2),...], cmap='gray')
+
+                plt.subplot(2,4,4)
+                plt.title('loss')
+                plt.xlabel('iterations')
+                im7, = plt.plot(losses, 'b-')
+                ims.append([im1,im2,im3,im4,im5,im6,im7])
+
+    #Writer = animation.writers['ffmpeg']
+    #ffmpeg_writer = Writer(fps=15, metadata=dict(artist='Me'), bitrate=1800)
+    ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True)
+    #ani.save('out.mp4', writer=ffmpeg_writer)
+    from matplotlib import rcParams
+    rcParams['animation.convert_path'] = r'/usr/bin/convert'
+    ani.save('out.gif', writer='imagemagick', fps=15)
+    plt.show()
+
+'''
     axs[0].imshow(image_out.detach().cpu().numpy(), cmap='gray')
     axs[0].set_title('iter: %d' % i)
     axs[1].imshow(target.detach().cpu().numpy(), cmap='gray')
@@ -762,3 +786,4 @@ if __name__ == '__main__':
     axs[2].set_title('loss')
     axs[2].set_xlabel('iterations')
     plt.show()
+'''
