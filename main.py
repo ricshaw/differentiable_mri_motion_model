@@ -86,6 +86,10 @@ def animate_3d(ims, image1=None, image2=None, losses=None):
         h += [im7]
     ims.append(h)
 
+def show_3d(image, axs):
+    axs[0].imshow(image[...,int(image.shape[2]//2)], cmap='gray', vmin=0, vmax=1)
+    axs[1].imshow(image[:,int(image.shape[1]//2),:], cmap='gray', vmin=0, vmax=1)
+    axs[2].imshow(image[int(image.shape[0]//2),...], cmap='gray', vmin=0, vmax=1)
 
 def check(arr1, arr2):
     if torch.is_tensor(arr1):
@@ -568,8 +572,8 @@ if __name__ == '__main__':
 
     # Load image
     #image = shepp_logan_phantom().astype(np.complex)
-    #image = utils.load_png('./data/sample_2d.png').astype(np.complex)
-    image = utils.load_nii_image('./data/sample_3d.nii.gz')
+    image = utils.load_png('./data/sample_2d.png').astype(np.complex)
+    #image = utils.load_nii_image('./data/sample_3d.nii.gz')
     #image = zoom(image, 0.75).astype(np.complex)
     ndims = len(image.shape)
 
@@ -579,9 +583,10 @@ if __name__ == '__main__':
         plt.imshow(np.abs(image), cmap='gray')
     if ndims == 3:
         fig, axs = plt.subplots(1,3)
-        axs[0].imshow(np.abs(image)[...,int(image.shape[2]//2)], cmap='gray')
-        axs[1].imshow(np.abs(image)[:,int(image.shape[1]//2),:], cmap='gray')
-        axs[2].imshow(np.abs(image)[int(image.shape[0]//2),...], cmap='gray')
+        show_3d(np.abs(image), axs)
+        #axs[0].imshow(np.abs(image)[...,int(image.shape[2]//2)], cmap='gray')
+        #axs[1].imshow(np.abs(image)[:,int(image.shape[1]//2),:], cmap='gray')
+        #axs[2].imshow(np.abs(image)[int(image.shape[0]//2),...], cmap='gray')
     plt.suptitle('Input image')
     plt.tight_layout()
 
@@ -630,21 +635,24 @@ if __name__ == '__main__':
 
     if ndims == 3:
         fig, axs = plt.subplots(1,3)
-        axs[0].imshow(image_out_np[...,int(image_out_np.shape[2]//2)], cmap='gray', vmin=0, vmax=1)
-        axs[1].imshow(image_out_np[:,int(image_out_np.shape[1]//2),:], cmap='gray', vmin=0, vmax=1)
-        axs[2].imshow(image_out_np[int(image_out_np.shape[0]//2),...], cmap='gray', vmin=0, vmax=1)
+        show_3d(image_out_np, axs)
+        #axs[0].imshow(image_out_np[...,int(image_out_np.shape[2]//2)], cmap='gray', vmin=0, vmax=1)
+        #axs[1].imshow(image_out_np[:,int(image_out_np.shape[1]//2),:], cmap='gray', vmin=0, vmax=1)
+        #axs[2].imshow(image_out_np[int(image_out_np.shape[0]//2),...], cmap='gray', vmin=0, vmax=1)
         plt.suptitle('Output image')
         plt.tight_layout()
 
         fig, axs = plt.subplots(1,3)
-        axs[0].imshow(diff[...,int(diff.shape[2]//2)], cmap='jet', vmin=0, vmax=1)
-        axs[1].imshow(diff[:,int(diff.shape[1]//2),:], cmap='jet', vmin=0, vmax=1)
-        axs[2].imshow(diff[int(diff.shape[0]//2),...], cmap='jet', vmin=0, vmax=1)
+        show_3d(diff, axs)
+        #axs[0].imshow(diff[...,int(diff.shape[2]//2)], cmap='jet', vmin=0, vmax=1)
+        #axs[1].imshow(diff[:,int(diff.shape[1]//2),:], cmap='jet', vmin=0, vmax=1)
+        #axs[2].imshow(diff[int(diff.shape[0]//2),...], cmap='jet', vmin=0, vmax=1)
         plt.suptitle('Diff image')
         plt.tight_layout()
     plt.show()
 
 
+    # Targets
     target = image_out.clone().to(float)
     target = torch.abs(target)
     target = (target - target.min()) / (target.max() - target.min())
@@ -661,37 +669,34 @@ if __name__ == '__main__':
         kz_target = kz_out.clone()
         kz_target.requires_grad = False
 
-
+    # Starting image
     image = torch.tensor(image).to(float)
     image = torch.abs(image.squeeze())
     image = (image - image.min()) / (image.max() - image.min())
     image.requires_grad = True
     print('target', target.dtype, target.shape, target.min(), target.max())
     print('input', image.dtype, image.shape, image.min(), image.max())
+    im_size = image.shape
+    image_tensor = image.to(dtype).unsqueeze(0).unsqueeze(0).to(device)
 
     image_np = image.detach().cpu().numpy()
     target_np = target.squeeze().detach().cpu().numpy()
     if ndims == 2:
-        fig, axs = plt.subplots(1,2)
-        axs[0].imshow(image_np, cmap='gray')
-        axs[0].set_title('start')
-        axs[1].imshow(target_np, cmap='gray')
-        axs[1].set_title('target')
+        fig = plt.figure()
+        plt.imshow(target_np, cmap='gray')
+        plt.title('target')
     if ndims == 3:
-        fig, axs = plt.subplots(2,3)
-        axs[0,0].imshow(image_np[...,int(image_np.shape[2]//2)], cmap='gray')
-        axs[0,1].imshow(image_np[:,int(image_np.shape[1]//2),:], cmap='gray')
-        axs[0,2].imshow(image_np[int(image_np.shape[0]//2),...], cmap='gray')
-        axs[0,0].set_title('start')
-        axs[1,0].imshow(target_np[...,int(target_np.shape[2]//2)], cmap='gray')
-        axs[1,1].imshow(target_np[:,int(target_np.shape[1]//2),:], cmap='gray')
-        axs[1,2].imshow(target_np[int(target_np.shape[0]//2),...], cmap='gray')
-        axs[1,0].set_title('target')
+        fig, axs = plt.subplots(1,3)
+        show_3d(target_np, axs)
+        #axs[1,0].imshow(target_np[...,int(target_np.shape[2]//2)], cmap='gray')
+        #axs[1,1].imshow(target_np[:,int(target_np.shape[1]//2),:], cmap='gray')
+        #axs[1,2].imshow(target_np[int(target_np.shape[0]//2),...], cmap='gray')
+        axs[0,1].set_title('target')
     plt.show()
 
-     # Convert image to tensor and unsqueeze coil and batch dimension
-    im_size = image.shape
-    image_tensor = image.to(dtype).unsqueeze(0).unsqueeze(0).to(device)
+    # Convert image to tensor and unsqueeze coil and batch dimension
+    #im_size = image.shape
+    #image_tensor = image.to(dtype).unsqueeze(0).unsqueeze(0).to(device)
 
     # Init k-space trajectory
     if ndims == 2:
@@ -711,6 +716,7 @@ if __name__ == '__main__':
         kz.requires_grad = False
         korig = torch.stack((ky.flatten(), kx.flatten(), kz.flatten()))
 
+    # Init NUFFT objects
     nufft_ob = tkbn.KbNufft(
         im_size=im_size,
         grid_size=grid_size,
@@ -725,16 +731,17 @@ if __name__ == '__main__':
 
     masks = gen_masks(n_movements, locs, grid_size)
 
-    # Optimise
-    print('Optimising...')
+    # Init optimization
+    print('Optimizing...')
 
+    # Init translation
     ts_init = 0.0*torch.randn(n_movements+1, ndims, dtype=torch.float32, device=device)
     ts_init[0,:] = 0.
-    #ts_init[0,0] = -20.0
     ts = ts_init.clone().detach()
     ts.requires_grad = True
     print(ts)
 
+    # Init rotation
     if ndims == 2:
         angles_init = torch.FloatTensor(n_movements+1,).uniform_(-25.0, -25.0).to(device)
     if ndims == 3:
@@ -744,16 +751,11 @@ if __name__ == '__main__':
     angles.requires_grad = True
     print(angles)
 
-    #optimizer = torch.optim.Adam([ts], lr=1.)
-    #optimizer = torch.optim.Adam([angles], lr=1.)
+    # Init optimizer
     optimizer = torch.optim.Adam([ts, angles], lr=1.)
-    #optimizer = torch.optim.Adam([ts, kx, ky], lr=1.)
 
+    # Init loss functions
     l1_loss = nn.L1Loss()
-    #ssim_loss = SSIMLoss(data_range=1.)
-    ms_ssim_loss = MultiScaleSSIMLoss()
-    #vsi_loss = VSILoss()
-
 
     # Init animation
     fig = plt.figure()
@@ -764,12 +766,11 @@ if __name__ == '__main__':
     if ndims == 3:
         animate_3d(ims, image_np, target_np, losses=None)
 
+    # Optimize...
     n_iter = 1000
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()
-
-        #angles = angles - 2
         image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement_opt(image_tensor, ndims,
                                                                 n_movements, locs, ts, angles,
                                                                 kdata, korig, kx, ky, kz,
