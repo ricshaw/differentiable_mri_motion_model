@@ -366,6 +366,22 @@ def gen_ktraj_np(nlines, klen):
     kx, ky = np.meshgrid(kx, ky)
     return kx, ky
 
+def build_kspace(image_shape, sampling_rate):
+    ndims = len(image_shape)
+    if ndims == 2:
+        kr = int(image_shape[0] * sampling_rate)
+        kc = int(image_shape[1] * sampling_rate)
+        grid_size = (kr, kc)
+        kx, ky = gen_ktraj(kr, kc)
+        kz = None
+    if ndims == 3:
+        kr = int(image_shape[0] * sampling_rate)
+        kc = int(image_shape[1] * sampling_rate)
+        kd = int(image_shape[2] * sampling_rate)
+        grid_size = (kr, kc, kd)
+        kx, ky, kz = gen_ktraj(kr, kc, kd)
+    return kx, ky, kz, grid_size
+
 def to_1d(kx, ky, kz=None):
     if kz is None:
         return torch.stack((ky.flatten(), kx.flatten()))
@@ -507,8 +523,7 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
 def gen_movement_opt(image, ndims,
                      n_movements, locs, ts, angles,
                      kdata, korig, kx, ky, kz=None,
-                     grid_size=None, im_size=None,
-                     adjnufft_ob=None,
+                     grid_size=None, adjnufft_ob=None,
                      masks=None):
 
     # Apply rotation component
@@ -542,21 +557,17 @@ def gen_movement_opt(image, ndims,
             kz_new += masks[i] * kzi
 
     # Apply translational component
-    if True:
-        print('Applying translational component')
-        kdata = torch.reshape(kdata, grid_size)
-        kdata_new = torch.zeros_like(kdata, device=device)
-        for i in range(len(masks)):
-            t = ts[i]
-            print(i,t)
-            if ndims == 2:
-                kdata_i = translate_opt(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())), t)
-            if ndims == 3:
-                kdata_i = translate_opt(kdata, torch.stack((ky_new.flatten(), kx_new.flatten(), kz_new.flatten())), t)
-            kdata_new += masks[i] * kdata_i
-        #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
-        kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
-        #kdata = kdata.flatten().unsqueeze(0).unsqueeze(0)
+    kdata = torch.reshape(kdata, grid_size)
+    kdata_new = torch.zeros_like(kdata, device=device)
+    for i in range(len(masks)):
+        t = ts[i]
+        if ndims == 2:
+            kdata_i = translate_opt(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())), t)
+        if ndims == 3:
+            kdata_i = translate_opt(kdata, torch.stack((ky_new.flatten(), kx_new.flatten(), kz_new.flatten())), t)
+        kdata_new += masks[i] * kdata_i
+    #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
+    kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
 
     # adjnufft back
     if ndims == 2:
@@ -590,28 +601,17 @@ if __name__ == '__main__':
 
     # Create a k-space trajectory
     sampling_rate = 1.0
-    if ndims == 2:
-        kr = int(image.shape[0] * sampling_rate)
-        kc = int(image.shape[1] * sampling_rate)
-        grid_size = (kr, kc)
-        kx, ky = gen_ktraj(kr, kc)
-        kz = None
-    if ndims == 3:
-        kr = int(image.shape[0] * sampling_rate)
-        kc = int(image.shape[1] * sampling_rate)
-        kd = int(image.shape[2] * sampling_rate)
-        grid_size = (kr, kc, kd)
-        kx, ky, kz = gen_ktraj(kr, kc, kd)
+    kx_init, ky_init, kz_init, grid_size = build_kspace(image.shape, sampling_rate)
 
     # Generate movement
     n_movements = 10
-    locs = sorted(np.random.choice(kr, n_movements))
+    locs = sorted(np.random.choice(kx_init.shape[0], n_movements))
     image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement(image,
-                                                        kx, ky, kz,
-                                                        grid_size=grid_size,
-                                                        n_movements=n_movements,
-                                                        locs=locs,
-                                                        debug=True)
+                                                                kx_init, ky_init, kz_init,
+                                                                grid_size=grid_size,
+                                                                n_movements=n_movements,
+                                                                locs=locs,
+                                                                debug=True)
 
     # Show the images
     image_out_np = np.abs(np.squeeze(image_out.detach().cpu().numpy()))
@@ -685,14 +685,13 @@ if __name__ == '__main__':
 
     # Init k-space trajectory
     if ndims == 2:
-        kx_init, ky_init = gen_ktraj(kr, kc)
         kx = kx_init.clone().detach()
         ky = ky_init.clone().detach()
+        kz = None
         kx.requires_grad = False
         ky.requires_grad = False
         korig = torch.stack((ky.flatten(), kx.flatten()))
     if ndims == 3:
-        kx_init, ky_init, kz_init = gen_ktraj(kr, kc, kd)
         kx = kx_init.clone().detach()
         ky = ky_init.clone().detach()
         kz = kz_init.clone().detach()
@@ -752,15 +751,14 @@ if __name__ == '__main__':
         animate_3d(ims, image_np, target_np, losses=None)
 
     # Optimize...
-    n_iter = 1
+    n_iter = 50
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()
         image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement_opt(image_tensor, ndims,
                                                                 n_movements, locs, ts, angles,
                                                                 kdata, korig, kx, ky, kz,
-                                                                grid_size, im_size,
-                                                                adjnufft_ob,
+                                                                grid_size, adjnufft_ob,
                                                                 masks)
         print('output:', image_out.shape, image_out.dtype, 'target:', target.shape, target.dtype)
 
