@@ -300,64 +300,63 @@ def combine_affines(affines):
         Aprev = combinedA
     return combinedAffines
 
-def gen_masks(n_movements, locs, grid_size):
-    masks = []
-    if n_movements > 0:
-        mask = torch.zeros(grid_size, device=device)
-        mask[0:locs[0],:] = 1
-        masks.append(mask)
-        for i in range(1,n_movements):
+def gen_masks(n_movements, locs, grid_size, use_torch=True):
+    if use_torch:
+        masks = []
+        if n_movements > 0:
             mask = torch.zeros(grid_size, device=device)
-            mask[locs[i-1]:locs[i],:] = 1
+            mask[0:locs[0],...] = 1
             masks.append(mask)
-        mask = torch.zeros(grid_size, device=device)
-        mask[locs[-1]::,:] = 1
-        masks.append(mask)
-    else:
-        masks.append(torch.ones(grid_size, device=device))
-    return masks
-
-def gen_masks_np(n_movements, nlines, klen):
-    masks = []
-    if n_movements > 0:
-        lines = sorted(np.random.choice(nlines, n_movements))
-        mask = np.zeros((nlines, klen))
-        mask[0:lines[0],:] = 1
-        masks.append(mask)
-        for i in range(1,n_movements):
-            mask = np.zeros((nlines, klen))
-            mask[lines[i-1]:lines[i],:] = 1
+            for i in range(1,n_movements):
+                mask = torch.zeros(grid_size, device=device)
+                mask[locs[i-1]:locs[i],...] = 1
+                masks.append(mask)
+            mask = torch.zeros(grid_size, device=device)
+            mask[locs[-1]::,...] = 1
             masks.append(mask)
-        mask = np.zeros((nlines, klen))
-        mask[lines[-1]::,:] = 1
-        masks.append(mask)
+        else:
+            masks.append(torch.ones(grid_size, device=device))
+        return masks
     else:
-        masks.append(np.ones((nlines, klen)))
-    return masks
+        masks = []
+        if n_movements > 0:
+            mask = np.zeros(grid_size)
+            mask[0:locs[0],...] = 1
+            masks.append(mask)
+            for i in range(1,n_movements):
+                mask = np.zeros(grid_size)
+                mask[locs[i-1]:locs[i],...] = 1
+                masks.append(mask)
+            mask = np.zeros(grid_size)
+            mask[locs[-1]::,...] = 1
+            masks.append(mask)
+        else:
+            masks.append(np.ones(grid_size))
+        return masks
 
-def gen_ktraj(nlines, klen, kdepth=None):
-    if kdepth is None:
-        kx = torch.linspace(-np.pi, np.pi, klen)
-        ky = torch.linspace(-np.pi, np.pi, nlines)
-        kx, ky = torch.meshgrid(kx, ky)
-        kx = kx.T.to(device)
-        ky = ky.T.to(device)
+def gen_ktraj(nlines, klen, kdepth=None, use_torch=True):
+    if use_torch:
+        if kdepth is None:
+            kx = torch.linspace(-np.pi, np.pi, klen)
+            ky = torch.linspace(-np.pi, np.pi, nlines)
+            kx, ky = torch.meshgrid(kx, ky)
+            kx = kx.T.to(device)
+            ky = ky.T.to(device)
+            return kx, ky
+        else:
+            kx = torch.linspace(-np.pi, np.pi, klen)
+            ky = torch.linspace(-np.pi, np.pi, nlines)
+            kz = torch.linspace(-np.pi, np.pi, kdepth)
+            kx, ky, kz = torch.meshgrid(kx, ky, kz)
+            kx = kx.permute(1,0,2).to(device)
+            ky = ky.permute(1,0,2).to(device)
+            kz = kz.permute(1,0,2).to(device)
+            return kx, ky, kz
+    else:
+        kx = np.linspace(-np.pi, np.pi, klen)
+        ky = np.linspace(-np.pi, np.pi, nlines)
+        kx, ky = np.meshgrid(kx, ky)
         return kx, ky
-    else:
-        kx = torch.linspace(-np.pi, np.pi, klen)
-        ky = torch.linspace(-np.pi, np.pi, nlines)
-        kz = torch.linspace(-np.pi, np.pi, kdepth)
-        kx, ky, kz = torch.meshgrid(kx, ky, kz)
-        kx = kx.permute(1,0,2).to(device)
-        ky = ky.permute(1,0,2).to(device)
-        kz = kz.permute(1,0,2).to(device)
-        return kx, ky, kz
-
-def gen_ktraj_np(nlines, klen):
-    kx = np.linspace(-np.pi, np.pi, klen)
-    ky = np.linspace(-np.pi, np.pi, nlines)
-    kx, ky = np.meshgrid(kx, ky)
-    return kx, ky
 
 def build_kspace(image_shape, sampling_rate):
     ndims = len(image_shape)
@@ -637,7 +636,6 @@ if __name__ == '__main__':
         plt.tight_layout()
     plt.show()
 
-
     # Targets
     target = image_out.clone().to(dtype)
     target = torch.abs(target)
@@ -676,7 +674,6 @@ if __name__ == '__main__':
     plt.suptitle('target')
     plt.show()
 
-
     # Init k-space trajectory
     if ndims == 2:
         kx = kx_init.clone().detach()
@@ -709,6 +706,7 @@ if __name__ == '__main__':
     kdata = kdata_orig.clone().detach()
     kdata.requires_grad = True
 
+    # Init masks
     masks = gen_masks(n_movements, locs, grid_size)
 
     # Init optimization
