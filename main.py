@@ -359,6 +359,7 @@ def gen_ktraj(nlines, klen, kdepth=None, use_torch=True):
         return kx, ky
 
 def build_kspace(image_shape, sampling_rate):
+    """Construct the k-space trajectory."""
     ndims = len(image_shape)
     if ndims == 2:
         kr = int(image_shape[0] * sampling_rate)
@@ -374,14 +375,17 @@ def build_kspace(image_shape, sampling_rate):
         kx, ky, kz = gen_ktraj(kr, kc, kd)
     return kx, ky, kz, grid_size
 
-def to_1d(kx, ky, kz=None):
-    if kz is None:
-        return torch.stack((ky.flatten(), kx.flatten()))
+def to_1d(kx, ky, kz=None, use_torch=True):
+    if use_torch:
+        if kz is None:
+            return torch.stack((ky.flatten(), kx.flatten()))
+        else:
+            return torch.stack((ky.flatten(), kx.flatten(), kz.flatten()))
     else:
-        return torch.stack((ky.flatten(), kx.flatten(), kz.flatten()))
-
-def to_1d_np(kx, ky):
-    return np.stack((ky.flatten(), kx.flatten()))
+        if kz is None:
+            return np.stack((ky.flatten(), kx.flatten()))
+        else:
+            return np.stack((ky.flatten(), kx.flatten(), kz.flatten()))
 
 def to_2d(ktraj, grid_size, use_torch=True):
     if use_torch:
