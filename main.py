@@ -1,3 +1,4 @@
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import numpy as np
@@ -11,7 +12,6 @@ from skimage.data import shepp_logan_phantom
 from scipy.linalg import logm, expm
 from scipy.ndimage import zoom
 from piq import ssim, SSIMLoss, MultiScaleSSIMLoss, VSILoss
-import matplotlib
 
 from pytorch3d.transforms.so3 import (
     so3_exponential_map,
@@ -92,23 +92,12 @@ def show_3d(image, axs, cmap='gray'):
     axs[1].imshow(image[:,int(image.shape[1]//2),:], cmap=cmap, vmin=0, vmax=1)
     axs[2].imshow(image[int(image.shape[0]//2),...], cmap=cmap, vmin=0, vmax=1)
 
-def check(arr1, arr2):
-    if torch.is_tensor(arr1):
-        arr1 = arr1.detach().numpy()
-    if torch.is_tensor(arr2):
-        arr2 = arr2.detach().numpy()
-    arr1 = arr1.astype(np.float32)
-    arr2 = arr2.astype(np.float32)
-    print('arr1', arr1)
-    print('arr2', arr2)
-    print('equal', np.array_equal(arr1, arr2))
-
 def image_loss(target, image):
     target = torch.abs(target)
     image = torch.abs(image)
     target = (target - torch.mean(target)) / torch.std(target)
     image = (image - torch.mean(image)) / torch.std(image)
-    return torch.sum( (target - image)**2 ) + SSIMLoss(data_range=1.)
+    return torch.sum((target - image)**2)
 
 def kspace_loss(F_target, F):
     return torch.sum( torch.abs(F_target.real - F.real) ) + torch.sum( torch.abs(F_target.imag - F.imag) )
@@ -121,9 +110,7 @@ def plot_kdata(kdata, ndims=2):
         plt.title('k-space data, log10 scale')
     if ndims == 3:
         fig, axs = plt.subplots(1,3)
-        axs[0].imshow(np.log10(np.abs(kdata)[...,int(kdata.shape[2]//2)]), cmap='gray')
-        axs[1].imshow(np.log10(np.abs(kdata)[:,int(kdata.shape[1]//2),:]), cmap='gray')
-        axs[2].imshow(np.log10(np.abs(kdata)[int(kdata.shape[0]//2),...]), cmap='gray')
+        show_3d(np.log10(np.abs(kdata)), axs)
         plt.tight_layout()
         plt.suptitle('k-space data, log10 scale')
     plt.show()
@@ -174,46 +161,57 @@ def plot_ktraj_image(kx, ky, kz=None):
         plt.tight_layout()
     plt.show()
 
-def rotation_matrix_2d(ang):
+def rotation_matrix_2d(ang, use_torch=True):
     """2D rotation matrix."""
-    ang = torch.deg2rad(ang)
-    return torch.tensor([[torch.cos(ang), -torch.sin(ang)],
-                         [torch.sin(ang), torch.cos(ang)]], device=device)
+    if use_torch:
+        ang = torch.deg2rad(ang)
+        return torch.tensor([[torch.cos(ang), -torch.sin(ang)],
+                             [torch.sin(ang), torch.cos(ang)]], device=device)
+    else:
+        ang = np.deg2rad(ang)
+        return np.array([[np.cos(ang), -np.sin(ang)],
+                         [np.sin(ang), np.cos(ang)]])
 
-def rotation_matrix_2d_np(ang):
-    ang = np.deg2rad(ang)
-    return np.array([[np.cos(ang), -np.sin(ang)],
-                     [np.sin(ang), np.cos(ang)]])
-
-def rotation_matrix_3d(angles):
+def rotation_matrix_3d(angles, use_torch=True):
     """3D rotation matrix."""
-    angles = torch.deg2rad(angles)
-    ax, ay, az = angles[0], angles[1], angles[2]
-    Rx = torch.tensor([[1, 0, 0],
-                       [0, torch.cos(ax), -torch.sin(ax)],
-                       [0, torch.sin(ax), torch.cos(ax)]])
-    Ry = torch.tensor([[torch.cos(ay), 0, torch.sin(ay)],
-                       [0, 1, 0],
-                       [-torch.sin(ay), 0, torch.cos(ay)]])
-    Rz = torch.tensor([[torch.cos(az), -torch.sin(az), 0],
-                       [torch.sin(az),  torch.cos(az), 0],
-                       [0,0, 1]])
-    return torch.matmul(Rz,torch.matmul(Ry,Rx))
+    if use_torch:
+        angles = torch.deg2rad(angles)
+        ax, ay, az = angles[0], angles[1], angles[2]
+        Rx = torch.tensor([[1, 0, 0],
+                           [0, torch.cos(ax), -torch.sin(ax)],
+                           [0, torch.sin(ax), torch.cos(ax)]])
+        Ry = torch.tensor([[torch.cos(ay), 0, torch.sin(ay)],
+                           [0, 1, 0],
+                           [-torch.sin(ay), 0, torch.cos(ay)]])
+        Rz = torch.tensor([[torch.cos(az), -torch.sin(az), 0],
+                           [torch.sin(az),  torch.cos(az), 0],
+                           [0,0, 1]])
+        return torch.matmul(Rz,torch.matmul(Ry,Rx))
 
-def rotate(ktraj, R):
-    return torch.matmul(R, ktraj)
+def rotate(ktraj, R, use_torch=True):
+    """Rotate k-space."""
+    if use_torch:
+        return torch.matmul(R, ktraj)
+    else:
+        return np.matmul(R, ktraj)
 
-def rotate_np(ktraj, R):
-    return np.matmul(R, ktraj)
-
-def translate(F, ktraj, t):
-    shape = F.shape
-    phase = torch.matmul(t, ktraj)
-    shift = torch.exp(1j*phase)
-    F = shift * F.flatten()
-    return torch.reshape(F, shape)
+def translate(F, ktraj, t, use_torch=True):
+    """Translate k-space."""
+    if use_torch:
+        shape = F.shape
+        phase = torch.matmul(t, ktraj)
+        shift = torch.exp(1j*phase)
+        F = shift * F.flatten()
+        return torch.reshape(F, shape)
+    else:
+        shape = F.shape
+        phase = np.matmul(t, ktraj)
+        shift = np.exp(1j*phase)
+        F = shift * F.flatten()
+        return np.reshape(F, shape)
 
 def translate_opt(F, ktraj, t):
+    """Translate k-space optimized."""
     shape = F.shape
     phase = torch.matmul(t.to(torch.float32).to(device), ktraj.to(device))
     shift_real = torch.cos(phase)
@@ -221,13 +219,6 @@ def translate_opt(F, ktraj, t):
     shift = torch.complex(shift_real, shift_imag).to(device)
     F = shift * F.flatten()
     return torch.reshape(F, shape)
-
-def translate_np(F, ktraj, t):
-    shape = F.shape
-    phase = np.matmul(t, ktraj)
-    shift = np.exp(1j*phase)
-    F = shift * F.flatten()
-    return np.reshape(F, shape)
 
 def sample_movements(n_movements, ndims=2):
     affines = []
@@ -391,23 +382,22 @@ def to_1d(kx, ky, kz=None):
 def to_1d_np(kx, ky):
     return np.stack((ky.flatten(), kx.flatten()))
 
-def to_2d(ktraj, grid_size):
-    ndims = len(grid_size)
-    kx = torch.reshape(ktraj[1,...], grid_size)
-    ky = torch.reshape(ktraj[0,...], grid_size)
-    if ndims == 2:
+def to_2d(ktraj, grid_size, use_torch=True):
+    if use_torch:
+        ndims = len(grid_size)
+        kx = torch.reshape(ktraj[1,...], grid_size)
+        ky = torch.reshape(ktraj[0,...], grid_size)
+        if ndims == 2:
+            return kx, ky
+        if ndims == 3:
+            kz = torch.reshape(ktraj[2,...], grid_size)
+            return kx, ky, kz
+    else:
+        kx = ktraj[1,...]
+        ky = ktraj[0,...]
+        kx = np.reshape(kx, (nlines, klen))
+        ky = np.reshape(ky, (nlines, klen))
         return kx, ky
-    if ndims == 3:
-        kz = torch.reshape(ktraj[2,...], grid_size)
-        return kx, ky, kz
-
-
-def to_2d_np(ktraj, nlines, klen):
-    kx = ktraj[1,...]
-    ky = ktraj[0,...]
-    kx = np.reshape(kx, (nlines, klen))
-    ky = np.reshape(ky, (nlines, klen))
-    return kx, ky
 
 def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=None, debug=False):
 
