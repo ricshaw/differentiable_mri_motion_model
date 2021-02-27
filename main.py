@@ -19,7 +19,9 @@ from pytorch3d.transforms.so3 import (
 )
 
 animate = True
-dtype = torch.complex64
+dtype = torch.float32
+complex_dtype = torch.complex64
+numpoints = 6
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
 matplotlib.use("Agg") if animate else None
@@ -213,7 +215,7 @@ def translate(F, ktraj, t, use_torch=True):
 def translate_opt(F, ktraj, t):
     """Translate k-space optimized."""
     shape = F.shape
-    phase = torch.matmul(t.to(torch.float32).to(device), ktraj.to(device))
+    phase = torch.matmul(t.to(dtype).to(device), ktraj.to(device))
     shift_real = torch.cos(phase)
     shift_imag = torch.sin(phase)
     shift = torch.complex(shift_real, shift_imag).to(device)
@@ -261,8 +263,8 @@ def sample_movements_np(n_movements):
     return affines
 
 def sample_movements_log(n_movements):
-    log_R = 0.05*torch.randn(n_movements+1, 3, dtype=torch.float32, device=device)
-    t = 10.0*torch.randn(n_movements+1, 3, dtype=torch.float32, device=device)
+    log_R = 0.05*torch.randn(n_movements+1, 3, dtype=dtype, device=device)
+    t = 10.0*torch.randn(n_movements+1, 3, dtype=dtype, device=device)
     log_R[0,:] = 0.
     t[0,:] = 0.
     R = so3_exponential_map(log_R).to(device)
@@ -404,7 +406,7 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     # Convert image to tensor and unsqueeze coil and batch dimension
     ndims = len(image.shape)
     im_size = image.shape
-    image = torch.tensor(image).to(dtype).unsqueeze(0).unsqueeze(0).to(device)
+    image = torch.tensor(image).to(complex_dtype).unsqueeze(0).unsqueeze(0).to(device)
     print('image shape: {}'.format(image.shape))
 
     # Build ktraj
@@ -471,17 +473,19 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
         plot_ktraj(kx_new, ky_new, kz_new)
         plot_ktraj_image(kx_new, ky_new, kz_new)
 
-    ktraj = torch.tensor(ktraj).to(torch.float)
+    ktraj = torch.tensor(ktraj).to(dtype)
     print('ktraj shape: {}'.format(ktraj.shape))
 
     # create NUFFT objects, use 'ortho' for orthogonal FFTs
     nufft_ob = tkbn.KbNufft(
         im_size=im_size,
         grid_size=grid_size,
-        ).to(dtype).to(device)
+        numpoints=numpoints,
+        ).to(complex_dtype).to(device)
     adjnufft_ob = tkbn.KbNufftAdjoint(
         im_size=im_size,
         grid_size=grid_size,
+        numpoints=numpoints,
         ).to(image).to(device)
 
     # Calculate k-space data
@@ -565,7 +569,7 @@ def gen_movement_opt(image, ndims,
     if ndims == 3:
         image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten(), kz_new.flatten())))
 
-    image_out = torch.abs(image_out).to(float)
+    image_out = torch.abs(image_out).to(dtype)
     image_out = (image_out - image_out.min()) / (image_out.max() - image_out.min())
     return image_out, kdata, kx_new, ky_new, kz_new
 
@@ -635,7 +639,7 @@ if __name__ == '__main__':
 
 
     # Targets
-    target = image_out.clone().to(float)
+    target = image_out.clone().to(dtype)
     target = torch.abs(target)
     target = (target - target.min()) / (target.max() - target.min())
     target.requires_grad = False
@@ -652,14 +656,14 @@ if __name__ == '__main__':
         kz_target.requires_grad = False
 
     # Starting image
-    image = torch.tensor(image).to(float)
+    image = torch.tensor(image).to(dtype)
     image = torch.abs(image.squeeze())
     image = (image - image.min()) / (image.max() - image.min())
     image.requires_grad = True
     print('target', target.dtype, target.shape, target.min(), target.max())
     print('input', image.dtype, image.shape, image.min(), image.max())
     im_size = image.shape
-    image_tensor = image.to(dtype).unsqueeze(0).unsqueeze(0).to(device)
+    image_tensor = image.to(complex_dtype).unsqueeze(0).unsqueeze(0).to(device)
 
     image_np = image.detach().cpu().numpy()
     target_np = target.squeeze().detach().cpu().numpy()
@@ -694,10 +698,12 @@ if __name__ == '__main__':
     nufft_ob = tkbn.KbNufft(
         im_size=im_size,
         grid_size=grid_size,
-        ).to(dtype).to(device)
+        numpoints=numpoints,
+        ).to(complex_dtype).to(device)
     adjnufft_ob = tkbn.KbNufftAdjoint(
         im_size=im_size,
         grid_size=grid_size,
+        numpoints=numpoints,
         ).to(image_tensor).to(device)
     kdata_orig = nufft_ob(image_tensor, korig).to(device)
     kdata = kdata_orig.clone().detach()
@@ -709,7 +715,7 @@ if __name__ == '__main__':
     print('Optimizing...')
 
     # Init translation
-    ts_init = 0.0*torch.randn(n_movements+1, ndims, dtype=torch.float32, device=device)
+    ts_init = 0.0*torch.randn(n_movements+1, ndims, dtype=dtype, device=device)
     ts_init[0,:] = 0.
     ts = ts_init.clone().detach()
     ts.requires_grad = True
@@ -741,7 +747,7 @@ if __name__ == '__main__':
         animate_3d(ims, image_np, target_np, losses=None)
 
     # Optimize...
-    n_iter = 50
+    n_iter = 100
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()
