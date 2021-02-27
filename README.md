@@ -1,7 +1,7 @@
 # Differentiable MRI Motion Model
 
 This python code can be used to generate patient movement artefacts in MRI scans.\
-It can be applied to both 2D or 3D images.
+It is fully differentiable and can be applied to both 2D or 3D images.
 
 2D:
 
