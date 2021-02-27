@@ -18,7 +18,7 @@ from pytorch3d.transforms.so3 import (
     so3_relative_angle,
 )
 
-animate = False
+animate = True
 dtype = torch.complex64
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
@@ -87,10 +87,10 @@ def animate_3d(ims, image1=None, image2=None, losses=None):
         h += [im7]
     ims.append(h)
 
-def show_3d(image, axs):
-    axs[0].imshow(image[...,int(image.shape[2]//2)], cmap='gray', vmin=0, vmax=1)
-    axs[1].imshow(image[:,int(image.shape[1]//2),:], cmap='gray', vmin=0, vmax=1)
-    axs[2].imshow(image[int(image.shape[0]//2),...], cmap='gray', vmin=0, vmax=1)
+def show_3d(image, axs, cmap='gray'):
+    axs[0].imshow(image[...,int(image.shape[2]//2)], cmap=cmap, vmin=0, vmax=1)
+    axs[1].imshow(image[:,int(image.shape[1]//2),:], cmap=cmap, vmin=0, vmax=1)
+    axs[2].imshow(image[int(image.shape[0]//2),...], cmap=cmap, vmin=0, vmax=1)
 
 def check(arr1, arr2):
     if torch.is_tensor(arr1):
@@ -585,9 +585,6 @@ if __name__ == '__main__':
     if ndims == 3:
         fig, axs = plt.subplots(1,3)
         show_3d(np.abs(image), axs)
-        #axs[0].imshow(np.abs(image)[...,int(image.shape[2]//2)], cmap='gray')
-        #axs[1].imshow(np.abs(image)[:,int(image.shape[1]//2),:], cmap='gray')
-        #axs[2].imshow(np.abs(image)[int(image.shape[0]//2),...], cmap='gray')
     plt.suptitle('Input image')
     plt.tight_layout()
 
@@ -637,17 +634,11 @@ if __name__ == '__main__':
     if ndims == 3:
         fig, axs = plt.subplots(1,3)
         show_3d(image_out_np, axs)
-        #axs[0].imshow(image_out_np[...,int(image_out_np.shape[2]//2)], cmap='gray', vmin=0, vmax=1)
-        #axs[1].imshow(image_out_np[:,int(image_out_np.shape[1]//2),:], cmap='gray', vmin=0, vmax=1)
-        #axs[2].imshow(image_out_np[int(image_out_np.shape[0]//2),...], cmap='gray', vmin=0, vmax=1)
         plt.suptitle('Output image')
         plt.tight_layout()
 
         fig, axs = plt.subplots(1,3)
-        show_3d(diff, axs)
-        #axs[0].imshow(diff[...,int(diff.shape[2]//2)], cmap='jet', vmin=0, vmax=1)
-        #axs[1].imshow(diff[:,int(diff.shape[1]//2),:], cmap='jet', vmin=0, vmax=1)
-        #axs[2].imshow(diff[int(diff.shape[0]//2),...], cmap='jet', vmin=0, vmax=1)
+        show_3d(diff, axs, cmap='jet')
         plt.suptitle('Diff image')
         plt.tight_layout()
     plt.show()
@@ -685,19 +676,12 @@ if __name__ == '__main__':
     if ndims == 2:
         fig = plt.figure()
         plt.imshow(target_np, cmap='gray')
-        plt.title('target')
     if ndims == 3:
         fig, axs = plt.subplots(1,3)
         show_3d(target_np, axs)
-        #axs[1,0].imshow(target_np[...,int(target_np.shape[2]//2)], cmap='gray')
-        #axs[1,1].imshow(target_np[:,int(target_np.shape[1]//2),:], cmap='gray')
-        #axs[1,2].imshow(target_np[int(target_np.shape[0]//2),...], cmap='gray')
-        axs[0,1].set_title('target')
+    plt.suptitle('target')
     plt.show()
 
-    # Convert image to tensor and unsqueeze coil and batch dimension
-    #im_size = image.shape
-    #image_tensor = image.to(dtype).unsqueeze(0).unsqueeze(0).to(device)
 
     # Init k-space trajectory
     if ndims == 2:
@@ -768,7 +752,7 @@ if __name__ == '__main__':
         animate_3d(ims, image_np, target_np, losses=None)
 
     # Optimize...
-    n_iter = 100
+    n_iter = 1
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()
