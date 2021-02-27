@@ -12,16 +12,17 @@ from scipy.linalg import logm, expm
 from scipy.ndimage import zoom
 from piq import ssim, SSIMLoss, MultiScaleSSIMLoss, VSILoss
 import matplotlib
-matplotlib.use("Agg")
 
 from pytorch3d.transforms.so3 import (
     so3_exponential_map,
     so3_relative_angle,
 )
 
+animate = False
 dtype = torch.complex64
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
+matplotlib.use("Agg") if animate else None
 
 
 def animate_2d(ims, image1=None, image2=None, losses=None):
@@ -767,7 +768,7 @@ if __name__ == '__main__':
         animate_3d(ims, image_np, target_np, losses=None)
 
     # Optimize...
-    n_iter = 1000
+    n_iter = 100
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()
@@ -800,7 +801,7 @@ if __name__ == '__main__':
         optimizer.step()
         losses.append(loss.item())
 
-        if True:
+        if animate:
             image_out_np = image_out.squeeze().detach().cpu().numpy()
             if ndims == 2:
                 animate_2d(ims, image_out_np, None, losses)
@@ -808,11 +809,12 @@ if __name__ == '__main__':
             if ndims == 3:
                 animate_3d(ims, image_out_np, None, losses)
 
-    ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True)
-    from matplotlib import rcParams
-    rcParams['animation.convert_path'] = r'/usr/bin/convert'
-    ani.save('out.gif', writer='imagemagick', fps=15)
-    plt.show()
+    if animate:
+        ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True)
+        from matplotlib import rcParams
+        rcParams['animation.convert_path'] = r'/usr/bin/convert'
+        ani.save('out.gif', writer='imagemagick', fps=15)
+        print('Saved out.gif')
 
 '''
     axs[0].imshow(image_out.detach().cpu().numpy(), cmap='gray')
