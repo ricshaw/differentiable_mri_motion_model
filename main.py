@@ -25,8 +25,7 @@ numpoints = 6
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
 matplotlib.use("Agg") if animate else None
-#torch.autograd.set_detect_anomaly(True)
-#torch.cuda.empty_cache()
+
 
 def animate_2d(ims, image1=None, image2=None, losses=None):
     h = []
@@ -90,10 +89,10 @@ def animate_3d(ims, image1=None, image2=None, losses=None):
         h += [im7]
     ims.append(h)
 
-def show_3d(image, axs, cmap='gray'):
-    axs[0].imshow(image[...,int(image.shape[2]//2)], cmap=cmap, vmin=0, vmax=1)
-    axs[1].imshow(image[:,int(image.shape[1]//2),:], cmap=cmap, vmin=0, vmax=1)
-    axs[2].imshow(image[int(image.shape[0]//2),...], cmap=cmap, vmin=0, vmax=1)
+def show_3d(image, axs, cmap='gray', vmin=None, vmax=None):
+    axs[0].imshow(image[...,int(image.shape[2]//2)], cmap=cmap, vmin=vmin, vmax=vmax)
+    axs[1].imshow(image[:,int(image.shape[1]//2),:], cmap=cmap, vmin=vmin, vmax=vmax)
+    axs[2].imshow(image[int(image.shape[0]//2),...], cmap=cmap, vmin=vmin, vmax=vmax)
 
 def image_loss(target, image):
     target = torch.abs(target)
@@ -409,6 +408,64 @@ def to_2d(ktraj, grid_size, use_torch=True):
         ky = np.reshape(ky, (nlines, klen))
         return kx, ky
 
+def apply_rotation(angles, kx, ky, kz=None, ndims=None, masks=None):
+    if ndims == 2:
+        kx_new = torch.zeros_like(kx, device=device)
+        ky_new = torch.zeros_like(ky, device=device)
+        kz_new = None
+        for i in range(len(masks)):
+            ang = torch.deg2rad(angles[i])
+            kyi = torch.cos(ang)*ky - torch.sin(ang)*kx
+            kxi = torch.sin(ang)*ky + torch.cos(ang)*kx
+            kx_new[masks[i],...] = kxi[masks[i],...]
+            ky_new[masks[i],...] = kyi[masks[i],...]
+    if ndims == 3:
+        kx_new = torch.zeros_like(kx, device=device)
+        ky_new = torch.zeros_like(ky, device=device)
+        kz_new = torch.zeros_like(kz, device=device)
+        for i in range(len(masks)):
+            ang = torch.deg2rad(angles[i])
+            ax, ay, az = ang[0], ang[1], ang[2]
+            cax, sax = torch.cos(ax), torch.sin(ax)
+            cay, say = torch.cos(ay), torch.sin(ay)
+            caz, saz = torch.cos(az), torch.sin(az)
+
+            kyi = (cax*cay)*ky + (cax*say*saz - sax*caz)*kx + (cax*say*caz + sax*saz)*kz
+            kxi = (sax*cay)*ky + (sax*say*saz + cax*caz)*kx + (sax*say*caz - cax*saz)*kz
+            kzi = (-say)*ky + (cay*saz)*kx + (cay*caz)*kz
+            kx_new[masks[i],...] = kxi[masks[i],...]
+            ky_new[masks[i],...] = kyi[masks[i],...]
+            kz_new[masks[i],...] = kzi[masks[i],...]
+    return kx_new, ky_new, kz_new
+
+def apply_translation(ts, kdata, kx, ky, kz=None, grid_size=None, ndims=None, masks=None):
+    kdata = torch.reshape(kdata, grid_size)
+    kdata_new = torch.zeros_like(kdata, device=device)
+    for i in range(len(masks)):
+        t = ts[i]
+        if ndims == 2:
+            kdata_i = translate_opt(kdata, torch.stack((ky.flatten(), kx.flatten())), t)
+        if ndims == 3:
+            kdata_i = translate_opt(kdata, torch.stack((ky.flatten(), kx.flatten(), kz.flatten())), t)
+        kdata_new.real[masks[i],...] = kdata_i.real[masks[i],...]
+        kdata_new.imag[masks[i],...] = kdata_i.imag[masks[i],...]
+    #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
+    kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
+    return kdata
+
+def build_nufft(image, im_size, grid_size, numpoints):
+    nufft_ob = tkbn.KbNufft(
+        im_size=im_size,
+        grid_size=grid_size,
+        numpoints=numpoints,
+        ).to(complex_dtype).to(device)
+    adjnufft_ob = tkbn.KbNufftAdjoint(
+        im_size=im_size,
+        grid_size=grid_size,
+        numpoints=numpoints,
+        ).to(image).to(device)
+    return nufft_ob, adjnufft_ob
+
 def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=None, debug=False):
 
     # Convert image to tensor and unsqueeze coil and batch dimension
@@ -453,8 +510,6 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
             ktraji = rotate(ktraj, R)
             ktrajs.append(ktraji)
             kxi, kyi = to_2d(ktraji, grid_size)
-            #kx_new += masks[i] * kxi
-            #ky_new += masks[i] * kyi
             kx_new[masks[i],...] = kxi[masks[i],...]
             ky_new[masks[i],...] = kyi[masks[i],...]
     if ndims == 3:
@@ -466,9 +521,6 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
             ktraji = rotate(ktraj, R)
             ktrajs.append(ktraji)
             kxi, kyi, kzi = to_2d(ktraji, grid_size)
-            #kx_new += masks[i] * kxi
-            #ky_new += masks[i] * kyi
-            #kz_new += masks[i] * kzi
             kx_new[masks[i],...] = kxi[masks[i],...]
             ky_new[masks[i],...] = kyi[masks[i],...]
             kz_new[masks[i],...] = kzi[masks[i],...]
@@ -480,52 +532,33 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     kx_new[mid-b:mid+b,:] = kx[mid-b:mid+b,:]
     ky_new[mid-b:mid+b,:] = ky[mid-b:mid+b,:]
     ktraj = to_1d(kx_new, ky_new, kz_new)
+    ktraj = torch.tensor(ktraj).to(dtype)
 
     # Plot ktraj
     if debug:
         plot_ktraj(kx_new, ky_new, kz_new)
         plot_ktraj_image(kx_new, ky_new, kz_new)
 
-    ktraj = torch.tensor(ktraj).to(dtype)
-    print('ktraj shape: {}'.format(ktraj.shape))
-
     # create NUFFT objects, use 'ortho' for orthogonal FFTs
-    nufft_ob = tkbn.KbNufft(
-        im_size=im_size,
-        grid_size=grid_size,
-        numpoints=numpoints,
-        ).to(complex_dtype).to(device)
-    adjnufft_ob = tkbn.KbNufftAdjoint(
-        im_size=im_size,
-        grid_size=grid_size,
-        numpoints=numpoints,
-        ).to(image).to(device)
+    nufft_ob, adjnufft_ob = build_nufft(image, im_size, grid_size, numpoints)
 
     # Calculate k-space data
     kdata = nufft_ob(image, korig).to(device)
-    print('kdata', kdata.shape)
 
     # Apply translational component
     print('Applying translational component')
-    kdata = torch.reshape(kdata, grid_size)
-    kdata_new = torch.zeros_like(kdata)
-    for i in range(len(masks)):
-        t = affines[i][:ndims,ndims]
-        print(i,t)
-        kdata_i = translate_opt(kdata, ktraj, t)
-        #kdata_new += masks[i] * kdata_i
-        kdata_new.real[masks[i],...] = kdata_i.real[masks[i],...]
-        kdata_new.imag[masks[i],...] = kdata_i.imag[masks[i],...]
-    #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
-    kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
+    ts = [a[:ndims,ndims] for a in affines]
+    kdata = apply_translation(ts, kdata, kx_new, ky_new, kz_new, grid_size, ndims, masks)
 
     # Plot the k-space data on log-scale
     if debug:
         kdata_numpy = np.reshape(kdata.detach().cpu().numpy(), grid_size)
         plot_kdata(kdata_numpy, ndims)
 
-    # adjnufft back
+    # Adjnufft back
     image_out = adjnufft_ob(kdata, ktraj)
+    image_out = torch.abs(image_out).to(dtype)
+    image_out = (image_out - image_out.min()) / (image_out.max() - image_out.min())
     return image_out, kdata, kx_new, ky_new, kz_new
 
 
@@ -536,61 +569,18 @@ def gen_movement_opt(image, ndims,
                      masks=None):
 
     # Apply rotation component
-    if ndims == 2:
-        kx_new = torch.zeros_like(kx, device=device)
-        ky_new = torch.zeros_like(ky, device=device)
-        kz_new = None
-        for i in range(len(masks)):
-            ang = torch.deg2rad(angles[i])
-            kyi = torch.cos(ang)*ky - torch.sin(ang)*kx
-            kxi = torch.sin(ang)*ky + torch.cos(ang)*kx
-            #kx_new += masks[i] * kxi
-            #ky_new += masks[i] * kyi
-            kx_new[masks[i],...] = kxi[masks[i],...]
-            ky_new[masks[i],...] = kyi[masks[i],...]
-
-    if ndims == 3:
-        kx_new = torch.zeros_like(kx, device=device)
-        ky_new = torch.zeros_like(ky, device=device)
-        kz_new = torch.zeros_like(kz, device=device)
-        for i in range(len(masks)):
-            ang = torch.deg2rad(angles[i])
-            ax, ay, az = ang[0], ang[1], ang[2]
-            cax, sax = torch.cos(ax), torch.sin(ax)
-            cay, say = torch.cos(ay), torch.sin(ay)
-            caz, saz = torch.cos(az), torch.sin(az)
-
-            kyi = (cax*cay)*ky + (cax*say*saz - sax*caz)*kx + (cax*say*caz + sax*saz)*kz
-            kxi = (sax*cay)*ky + (sax*say*saz + cax*caz)*kx + (sax*say*caz - cax*saz)*kz
-            kzi = (-say)*ky + (cay*saz)*kx + (cay*caz)*kz
-            #kx_new += masks[i] * kxi
-            #ky_new += masks[i] * kyi
-            #kz_new += masks[i] * kzi
-            kx_new[masks[i],...] = kxi[masks[i],...]
-            ky_new[masks[i],...] = kyi[masks[i],...]
-            kz_new[masks[i],...] = kzi[masks[i],...]
+    kx_new, ky_new, kz_new = apply_rotation(angles, kx, ky, kz, ndims, masks)
 
     # Apply translational component
-    kdata = torch.reshape(kdata, grid_size)
-    kdata_new = torch.zeros_like(kdata, device=device)
-    for i in range(len(masks)):
-        t = ts[i]
-        if ndims == 2:
-            kdata_i = translate_opt(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())), t)
-        if ndims == 3:
-            kdata_i = translate_opt(kdata, torch.stack((ky_new.flatten(), kx_new.flatten(), kz_new.flatten())), t)
-        kdata_new.real[masks[i],...] = kdata_i.real[masks[i],...]
-        kdata_new.imag[masks[i],...] = kdata_i.imag[masks[i],...]
-        #kdata_new += masks[i] * kdata_i
-    #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
-    kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
+    kdata = apply_translation(ts, kdata, kx_new, ky_new, kz_new, grid_size, ndims, masks)
 
-    # adjnufft back
+    # Adjnufft back
     if ndims == 2:
         image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())))
     if ndims == 3:
         image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten(), kz_new.flatten())))
 
+    # Output image
     image_out = torch.abs(image_out).to(dtype)
     image_out = (image_out - image_out.min()) / (image_out.max() - image_out.min())
     return image_out, kdata, kx_new, ky_new, kz_new
@@ -600,9 +590,9 @@ if __name__ == '__main__':
 
     # Load image
     #image = shepp_logan_phantom().astype(np.complex)
-    #image = utils.load_png('./data/sample_2d.png').astype(np.complex)
-    image = utils.load_nii_image('./data/sample_3d.nii.gz')
-    image = zoom(image, 0.5).astype(np.complex)
+    image = utils.load_png('./data/sample_2d.png').astype(np.complex)
+    #image = utils.load_nii_image('./data/sample_3d.nii.gz')
+    #image = zoom(image, 0.5).astype(np.complex)
     ndims = len(image.shape)
 
     # Visualise
@@ -611,7 +601,7 @@ if __name__ == '__main__':
         plt.imshow(np.abs(image), cmap='gray')
     if ndims == 3:
         fig, axs = plt.subplots(1,3)
-        show_3d(np.abs(image), axs)
+        show_3d(np.abs(image), axs, vmin=0, vmax=1)
     plt.suptitle('Input image')
     plt.tight_layout()
 
@@ -715,16 +705,7 @@ if __name__ == '__main__':
         korig = torch.stack((ky.flatten(), kx.flatten(), kz.flatten()))
 
     # Init NUFFT objects
-    nufft_ob = tkbn.KbNufft(
-        im_size=im_size,
-        grid_size=grid_size,
-        numpoints=numpoints,
-        ).to(complex_dtype).to(device)
-    adjnufft_ob = tkbn.KbNufftAdjoint(
-        im_size=im_size,
-        grid_size=grid_size,
-        numpoints=numpoints,
-        ).to(image_tensor).to(device)
+    nufft_ob, adjnufft_ob = build_nufft(image_tensor, im_size, grid_size, numpoints)
     kdata_orig = nufft_ob(image_tensor, korig).to(device)
     kdata = kdata_orig.clone().detach()
     kdata.requires_grad = True
@@ -759,13 +740,14 @@ if __name__ == '__main__':
     l1_loss = nn.L1Loss()
 
     # Init animation
-    fig = plt.figure()
-    plt.tight_layout()
-    ims = []
-    if ndims == 2:
-        animate_2d(ims, image_np, target_np, losses=None)
-    if ndims == 3:
-        animate_3d(ims, image_np, target_np, losses=None)
+    if animate:
+        fig = plt.figure()
+        plt.tight_layout()
+        ims = []
+        if ndims == 2:
+            animate_2d(ims, image_np, target_np, losses=None)
+        if ndims == 3:
+            animate_3d(ims, image_np, target_np, losses=None)
 
     # Optimize...
     n_iter = 100
@@ -804,7 +786,6 @@ if __name__ == '__main__':
             image_out_np = image_out.squeeze().detach().cpu().numpy()
             if ndims == 2:
                 animate_2d(ims, image_out_np, None, losses)
-
             if ndims == 3:
                 animate_3d(ims, image_out_np, None, losses)
 
@@ -814,14 +795,19 @@ if __name__ == '__main__':
         rcParams['animation.convert_path'] = r'/usr/bin/convert'
         ani.save('out.gif', writer='imagemagick', fps=15)
         print('Saved out.gif')
-
-'''
-    axs[0].imshow(image_out.detach().cpu().numpy(), cmap='gray')
-    axs[0].set_title('iter: %d' % i)
-    axs[1].imshow(target.detach().cpu().numpy(), cmap='gray')
-    axs[1].set_title('target')
-    axs[2].plot(losses)
-    axs[2].set_title('loss')
-    axs[2].set_xlabel('iterations')
-    plt.show()
-'''
+    else:
+        image_out_np = image_out.squeeze().detach().cpu().numpy()
+        if ndims == 2:
+            fig, axs = plt.subplots(1,3)
+            axs[0].imshow(image_out_np, cmap='gray')
+            axs[0].set_title('output')
+            axs[1].imshow(target_np, cmap='gray')
+            axs[1].set_title('target')
+            axs[2].plot(losses)
+            axs[2].set_title('loss')
+            axs[2].set_xlabel('iterations')
+        if ndims == 3:
+            fig, axs = plt.subplots(1,3)
+            show_3d(image_out_np, axs, vmin=0, vmax=1)
+            plt.suptitle('output')
+        plt.show()
