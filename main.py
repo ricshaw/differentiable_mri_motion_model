@@ -201,7 +201,7 @@ def build_nufft(image, im_size, grid_size, numpoints):
         ).to(image).to(device)
     return nufft_ob, adjnufft_ob
 
-def gen_movement(image, ndims, kx, ky, kz=None, grid_size=None, n_movements=None, locs=None, debug=False):
+def gen_movement(image, ndims, im_size, kx, ky, kz=None, grid_size=None, n_movements=None, locs=None, debug=False):
 
     # Sample affines
     affines, angles, ts = sample_movements(n_movements, ndims)
@@ -320,7 +320,7 @@ if __name__ == '__main__':
     # Generate movement
     n_movements = 10
     locs = sorted(np.random.choice(kx_init.shape[0], n_movements))
-    image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement(image, ndims,
+    image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement(image, ndims, im_size,
                                                                 kx_init, ky_init, kz_init,
                                                                 grid_size=grid_size,
                                                                 n_movements=n_movements,
