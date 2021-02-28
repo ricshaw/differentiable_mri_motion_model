@@ -335,8 +335,8 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     return image_out, kdata, kx_new, ky_new, kz_new
 
 def gen_movement_opt(image, ndims,
-                     n_movements, locs, ts, angles,
-                     kdata, korig, kx, ky, kz=None,
+                     ts, angles,
+                     kdata, kx, ky, kz=None,
                      grid_size=None, adjnufft_ob=None,
                      masks=None):
 
@@ -527,10 +527,10 @@ if __name__ == '__main__':
     for i in range(n_iter):
         optimizer.zero_grad()
         image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement_opt(image_tensor, ndims,
-                                                                n_movements, locs, ts, angles,
-                                                                kdata, korig, kx, ky, kz,
-                                                                grid_size, adjnufft_ob,
-                                                                masks)
+                                                                        ts, angles,
+                                                                        kdata, kx, ky, kz,
+                                                                        grid_size, adjnufft_ob,
+                                                                        masks)
         print('output:', image_out.shape, image_out.dtype, 'target:', target.shape, target.dtype)
 
         # Loss functions
