@@ -20,17 +20,6 @@ from pytorch3d.transforms.so3 import (
 )
 
 
-# Config
-debug = True
-animate = True
-dtype = torch.float32
-complex_dtype = torch.complex64
-numpoints = 6
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print('device:', device)
-matplotlib.use("Agg") if animate else None
-
-
 def sample_movements(n_movements, ndims):
     """Sample movement affine transforms."""
     affines = []
@@ -298,6 +287,16 @@ def gen_movement_opt(image, ndims,
 
 
 if __name__ == '__main__':
+
+    # Config
+    debug = True
+    animate = True
+    dtype = torch.float32
+    complex_dtype = torch.complex64
+    numpoints = 6
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print('device:', device)
+    matplotlib.use("Agg") if animate else None
 
     # Load image
     #image = shepp_logan_phantom().astype(np.complex)
