@@ -19,6 +19,8 @@ from pytorch3d.transforms.so3 import (
     so3_relative_angle,
 )
 
+
+# Config
 debug = True
 animate = True
 dtype = torch.float32
@@ -29,39 +31,7 @@ print('device:', device)
 matplotlib.use("Agg") if animate else None
 
 
-def rotate(ktraj, R, use_torch=True):
-    """Rotate k-space."""
-    if use_torch:
-        return torch.matmul(R, ktraj)
-    else:
-        return np.matmul(R, ktraj)
-
-def translate(F, ktraj, t, use_torch=True):
-    """Translate k-space."""
-    if use_torch:
-        shape = F.shape
-        phase = torch.matmul(t, ktraj)
-        shift = torch.exp(1j*phase)
-        F = shift * F.flatten()
-        return torch.reshape(F, shape)
-    else:
-        shape = F.shape
-        phase = np.matmul(t, ktraj)
-        shift = np.exp(1j*phase)
-        F = shift * F.flatten()
-        return np.reshape(F, shape)
-
-def translate_opt(F, ktraj, t):
-    """Translate k-space optimized."""
-    shape = F.shape
-    phase = torch.matmul(t.to(dtype).to(device), ktraj.to(device))
-    shift_real = torch.cos(phase)
-    shift_imag = torch.sin(phase)
-    shift = torch.complex(shift_real, shift_imag).to(device)
-    F = shift * F.flatten()
-    return torch.reshape(F, shape)
-
-def sample_movements(n_movements, ndims=2):
+def sample_movements(n_movements, ndims):
     """Sample movement affine transforms."""
     affines = []
     if ndims == 2:
@@ -83,22 +53,24 @@ def sample_movements(n_movements, ndims=2):
         affines.append(A)
     return affines, angles, trans
 
-def sample_movements_log(n_movements):
-    log_R = 0.05*torch.randn(n_movements+1, 3, dtype=dtype, device=device)
-    t = 10.0*torch.randn(n_movements+1, 3, dtype=dtype, device=device)
-    log_R[0,:] = 0.
-    t[0,:] = 0.
-    R = so3_exponential_map(log_R).to(device)
-    affines = []
-    for i in range(n_movements+1):
-        A = torch.eye(4)
-        A[:3,:3] = R[i,:]
-        A[:3,3] = t[i,:]
-        print(A)
-        affines.append(A)
-    return affines
+def sample_movements_log(n_movements, ndims):
+    """Sample movements in log space."""
+    if ndims == 3:
+        log_R = 0.05*torch.randn(n_movements+1, 3, dtype=dtype, device=device)
+        trans = 10.0*torch.randn(n_movements+1, 3, dtype=dtype, device=device)
+        log_R[0,:] = 0.
+        trans[0,:] = 0.
+        R = so3_exponential_map(log_R).to(device)
+        affines = []
+        for i in range(n_movements+1):
+            A = torch.eye(4).to(device)
+            A[:3,:3] = R[i,:]
+            A[:3,3] = trans[i,:]
+            affines.append(A)
+        return affines, log_R, trans
 
 def gen_masks(n_movements, locs, grid_size, use_torch=True):
+    """Generate k-space masks."""
     if use_torch:
         masks = []
         if n_movements > 0:
@@ -110,7 +82,7 @@ def gen_masks(n_movements, locs, grid_size, use_torch=True):
             mask = torch.arange(locs[-1],grid_size[0],dtype=torch.long,device=device)
             masks.append(mask)
         else:
-            masks.append(torch.arange(0,grid_size[0],dtype=torch.long),device=device)
+            masks.append(torch.arange(0,grid_size[0],dtype=torch.long,device=device))
         return masks
     else:
         masks = []
@@ -171,38 +143,8 @@ def build_kspace(image_shape, sampling_rate):
         kx, ky, kz = gen_ktraj(kr, kc, kd)
     return kx, ky, kz, grid_size
 
-def to_1d(kx, ky, kz=None, use_torch=True):
-    if use_torch:
-        if kz is None:
-            return torch.stack((ky.flatten(), kx.flatten()))
-        else:
-            return torch.stack((ky.flatten(), kx.flatten(), kz.flatten()))
-    else:
-        if kz is None:
-            return np.stack((ky.flatten(), kx.flatten()))
-        else:
-            return np.stack((ky.flatten(), kx.flatten(), kz.flatten()))
-
-def to_2d(ktraj, grid_size, use_torch=True):
-    ndims = len(grid_size)
-    if use_torch:
-        kx = torch.reshape(ktraj[1,...], grid_size)
-        ky = torch.reshape(ktraj[0,...], grid_size)
-        if ndims == 2:
-            return kx, ky
-        if ndims == 3:
-            kz = torch.reshape(ktraj[2,...], grid_size)
-            return kx, ky, kz
-    else:
-        kx = np.reshape(ktraj[1,...], grid_size)
-        ky = np.reshape(ktraj[0,...], grid_size)
-        if ndims == 2:
-            return kx, ky
-        if ndims == 3:
-            kz = np.reshape(ktraj[2,...], grid_size)
-            return kx, ky, kz
-
 def apply_rotation(angles, kx, ky, kz=None, ndims=None, masks=None):
+    """Apply rotation to k-space trajectory."""
     if ndims == 2:
         kx_new = torch.zeros_like(kx, device=device)
         ky_new = torch.zeros_like(ky, device=device)
@@ -233,17 +175,17 @@ def apply_rotation(angles, kx, ky, kz=None, ndims=None, masks=None):
     return kx_new, ky_new, kz_new
 
 def apply_translation(ts, kdata, kx, ky, kz=None, grid_size=None, ndims=None, masks=None):
+    """Apply translation as phase shift to k-space."""
     kdata = torch.reshape(kdata, grid_size)
     kdata_new = torch.zeros_like(kdata, device=device)
     for i in range(len(masks)):
         t = ts[i]
         if ndims == 2:
-            kdata_i = translate_opt(kdata, torch.stack((ky.flatten(), kx.flatten())), t)
+            kdata_i = utils.translate_opt(kdata, torch.stack((ky.flatten(), kx.flatten())), t, device=device)
         if ndims == 3:
-            kdata_i = translate_opt(kdata, torch.stack((ky.flatten(), kx.flatten(), kz.flatten())), t)
+            kdata_i = utils.translate_opt(kdata, torch.stack((ky.flatten(), kx.flatten(), kz.flatten())), t, device=device)
         kdata_new.real[masks[i],...] = kdata_i.real[masks[i],...]
         kdata_new.imag[masks[i],...] = kdata_i.imag[masks[i],...]
-    #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
     kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
     return kdata
 
@@ -269,10 +211,6 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     image = torch.tensor(image).to(complex_dtype).unsqueeze(0).unsqueeze(0).to(device)
     print('image shape: {}'.format(image.shape))
 
-    # Build ktraj
-    ktraj = to_1d(kx, ky, kz).to(device)
-    korig = ktraj.clone()
-
     # Sample affines
     affines, angles, ts = sample_movements(n_movements, ndims)
 
@@ -295,7 +233,6 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
                 plt.imshow(m[int(m.shape[0]//2),...])
 
     # Apply rotation component
-    print('Applying rotational component')
     kx_new, ky_new, kz_new = apply_rotation(angles, kx, ky, kz, ndims, masks)
 
     # Fix k-space centre
@@ -304,9 +241,6 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
         b = int(kx_new.shape[0] * 3/100.0)
         kx_new[mid-b:mid+b,:] = kx[mid-b:mid+b,:]
         ky_new[mid-b:mid+b,:] = ky[mid-b:mid+b,:]
-
-    ktraj = to_1d(kx_new, ky_new, kz_new)
-    ktraj = torch.tensor(ktraj).to(dtype)
 
     # Plot ktraj
     if debug:
@@ -317,10 +251,12 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     nufft_ob, adjnufft_ob = build_nufft(image, im_size, grid_size, numpoints)
 
     # Calculate k-space data
-    kdata = nufft_ob(image, korig).to(device)
+    if ndims == 2:
+        kdata = nufft_ob(image, torch.stack((ky.flatten(), kx.flatten()))).to(device)
+    if ndims == 3:
+        kdata = nufft_ob(image, torch.stack((ky.flatten(), kx.flatten(), kz.flatten()))).to(device)
 
     # Apply translational component
-    print('Applying translational component')
     kdata = apply_translation(ts, kdata, kx_new, ky_new, kz_new, grid_size, ndims, masks)
 
     # Plot the k-space data on log-scale
@@ -329,7 +265,10 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
         visualisation.plot_kdata(kdata_numpy, ndims)
 
     # Adjnufft back
-    image_out = adjnufft_ob(kdata, ktraj)
+    if ndims == 2:
+        image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())))
+    if ndims == 3:
+        image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten(), kz_new.flatten())))
 
     # Output image
     image_out = utils.normalise_image(image_out).to(dtype)
@@ -383,7 +322,7 @@ if __name__ == '__main__':
     kx_init, ky_init, kz_init, grid_size = build_kspace(image.shape, sampling_rate)
 
     # Generate movement
-    n_movements = 20
+    n_movements = 10
     locs = sorted(np.random.choice(kx_init.shape[0], n_movements))
     image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement(image,
                                                                 kx_init, ky_init, kz_init,
@@ -498,6 +437,7 @@ if __name__ == '__main__':
     # Init rotation
     if ndims == 2:
         angles_init = torch.FloatTensor(n_movements+1,).uniform_(-25.0, -25.0).to(device)
+        angles_init[0] = 45.0
     if ndims == 3:
         angles_init = torch.FloatTensor(n_movements+1,ndims).uniform_(-0.0, 0.0).to(device)
         angles_init[0,0] = 45.0
@@ -522,7 +462,7 @@ if __name__ == '__main__':
             visualisation.animate_3d(ims, image_np, target_np, losses=None)
 
     # Optimize...
-    n_iter = 20
+    n_iter = 100
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()

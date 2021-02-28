@@ -6,6 +6,7 @@ import torch
 import matplotlib.pyplot as plt
 
 def normalise_image(image, use_torch=True):
+    """Normalise image 0 to 1."""
     if use_torch:
         image = torch.abs(image)
     else:
@@ -16,11 +17,13 @@ def normalise_image(image, use_torch=True):
         return (image - image.min()) / (image.max() - image.min())
 
 def load_nii_image(filename):
+    """Load nifty image."""
     image = nib.load(filename)
     image = np.asanyarray(image.dataobj).astype(np.float32)
     return normalise_image(image, use_torch=False)
 
 def load_png(filename):
+    """Load png image."""
     image = cv2.imread(filename, cv2.IMREAD_ANYDEPTH).astype(np.float32)
     return normalise_image(image, use_torch=False)
 
@@ -63,3 +66,35 @@ def rotation_matrix_3d(angles, use_torch=True, device=None):
                        [np.sin(az),  np.cos(az), 0],
                        [0, 0, 1]])
         return np.matmul(Rz,np.matmul(Ry,Rx))
+
+def rotate(ktraj, R, use_torch=True):
+    """Rotate k-space."""
+    if use_torch:
+        return torch.matmul(R, ktraj)
+    else:
+        return np.matmul(R, ktraj)
+
+def translate(F, ktraj, t, use_torch=True):
+    """Translate k-space."""
+    if use_torch:
+        shape = F.shape
+        phase = torch.matmul(t, ktraj)
+        shift = torch.exp(1j*phase)
+        F = shift * F.flatten()
+        return torch.reshape(F, shape)
+    else:
+        shape = F.shape
+        phase = np.matmul(t, ktraj)
+        shift = np.exp(1j*phase)
+        F = shift * F.flatten()
+        return np.reshape(F, shape)
+
+def translate_opt(F, ktraj, t, device=None):
+    """Translate k-space optimizable."""
+    shape = F.shape
+    phase = torch.matmul(t, ktraj)
+    shift_real = torch.cos(phase)
+    shift_imag = torch.sin(phase)
+    shift = torch.complex(shift_real, shift_imag).to(device)
+    F = shift * F.flatten()
+    return torch.reshape(F, shape)
