@@ -29,33 +29,6 @@ print('device:', device)
 matplotlib.use("Agg") if animate else None
 
 
-def rotation_matrix_2d(ang, use_torch=True):
-    """2D rotation matrix."""
-    if use_torch:
-        ang = torch.deg2rad(ang)
-        return torch.tensor([[torch.cos(ang), -torch.sin(ang)],
-                             [torch.sin(ang), torch.cos(ang)]], device=device)
-    else:
-        ang = np.deg2rad(ang)
-        return np.array([[np.cos(ang), -np.sin(ang)],
-                         [np.sin(ang), np.cos(ang)]])
-
-def rotation_matrix_3d(angles, use_torch=True):
-    """3D rotation matrix."""
-    if use_torch:
-        angles = torch.deg2rad(angles)
-        ax, ay, az = angles[0], angles[1], angles[2]
-        Rx = torch.tensor([[1, 0, 0],
-                           [0, torch.cos(ax), -torch.sin(ax)],
-                           [0, torch.sin(ax), torch.cos(ax)]])
-        Ry = torch.tensor([[torch.cos(ay), 0, torch.sin(ay)],
-                           [0, 1, 0],
-                           [-torch.sin(ay), 0, torch.cos(ay)]])
-        Rz = torch.tensor([[torch.cos(az), -torch.sin(az), 0],
-                           [torch.sin(az),  torch.cos(az), 0],
-                           [0,0, 1]])
-        return torch.matmul(Rz,torch.matmul(Ry,Rx))
-
 def rotate(ktraj, R, use_torch=True):
     """Rotate k-space."""
     if use_torch:
@@ -89,6 +62,7 @@ def translate_opt(F, ktraj, t):
     return torch.reshape(F, shape)
 
 def sample_movements(n_movements, ndims=2):
+    """Sample movement affine transforms."""
     affines = []
     if ndims == 2:
         angles = torch.FloatTensor(n_movements+1,).uniform_(-15.0, 15.0).to(device)
@@ -96,35 +70,16 @@ def sample_movements(n_movements, ndims=2):
     if ndims == 3:
         angles = torch.FloatTensor(n_movements+1,ndims).uniform_(-15.0, 15.0).to(device)
         trans = torch.FloatTensor(n_movements+1,ndims).uniform_(-10.0, 10.0).to(device)
-        #trans[0,0] = 20.
-        #trans[0,1] = 0.
-        #trans[0,2] = 0.
     for i in range(n_movements+1):
         ang = angles[i]
         t = trans[i,:]
         A = torch.eye(ndims+1).to(device)
         if ndims == 2:
-            R = rotation_matrix_2d(ang).to(device)
+            R = utils.rotation_matrix_2d(ang, device=device)
         if ndims == 3:
-            R = rotation_matrix_3d(ang).to(device)
-        A[:ndims,:ndims] = R
+            R = utils.rotation_matrix_3d(ang, device=device)
+        A[:ndims,:ndims] = R.to(device)
         A[:ndims,ndims] = t.to(device)
-        print(A)
-        affines.append(A)
-    return affines
-
-def sample_movements_np(n_movements):
-    affines = []
-    angles = np.random.uniform(-10.0, 10.0, (n_movements,))
-    trans = np.random.uniform(-15.0, 15.0, (n_movements,2))
-    affines.append(np.eye(3))
-    for i in range(n_movements):
-        ang = angles[i]
-        t = trans[i,:]
-        A = np.eye(3)
-        R = rotation_matrix_np(ang)
-        A[:2,:2] = R
-        A[:2,2] = t
         affines.append(A)
     return affines
 
@@ -143,48 +98,18 @@ def sample_movements_log(n_movements):
         affines.append(A)
     return affines
 
-def gen_movements_log(n_movements, t):
-    #R = so3_exponential_map(log_R)
-    #log_R[0,:] = 0.
-    #t[0,:] = 0.
-    affines = []
-    for i in range(n_movements+1):
-        A = torch.eye(4)
-        A[:3,:3] = R[i,:]
-        A[:3,3] = t[i,:]
-        affines.append(A)
-    return affines
-
-def combine_affines(affines):
-    combinedAffines = []
-    Aprev = affines[0]
-    for i in range(len(affines)):
-        A = affines[i]
-        #combinedA = torch.matmul(Aprev,A)
-        combinedA = torch.matrix_exp( logm(A) + logm(Aprev) )
-        combinedAffines.append(combinedA)
-        Aprev = combinedA
-    return combinedAffines
-
 def gen_masks(n_movements, locs, grid_size, use_torch=True):
     if use_torch:
         masks = []
         if n_movements > 0:
-            #mask = torch.zeros(grid_size, device=device)
-            #mask[0:locs[0],...] = 1
             mask = torch.arange(0,locs[0],dtype=torch.long,device=device)
             masks.append(mask)
             for i in range(1,n_movements):
-                #mask = torch.zeros(grid_size, device=device)
-                #mask[locs[i-1]:locs[i],...] = 1
                 mask = torch.arange(locs[i-1],locs[i],dtype=torch.long,device=device)
                 masks.append(mask)
-            #mask = torch.zeros(grid_size, device=device)
-            #mask[locs[-1]::,...] = 1
             mask = torch.arange(locs[-1],grid_size[0],dtype=torch.long,device=device)
             masks.append(mask)
         else:
-            #masks.append(torch.ones(grid_size, device=device))
             masks.append(torch.arange(0,grid_size[0],dtype=torch.long),device=device)
         return masks
     else:
@@ -205,6 +130,7 @@ def gen_masks(n_movements, locs, grid_size, use_torch=True):
         return masks
 
 def gen_ktraj(nlines, klen, kdepth=None, use_torch=True):
+    """Generate kx, ky, kz."""
     if use_torch:
         if kdepth is None:
             kx = torch.linspace(-np.pi, np.pi, klen)
@@ -258,8 +184,8 @@ def to_1d(kx, ky, kz=None, use_torch=True):
             return np.stack((ky.flatten(), kx.flatten(), kz.flatten()))
 
 def to_2d(ktraj, grid_size, use_torch=True):
+    ndims = len(grid_size)
     if use_torch:
-        ndims = len(grid_size)
         kx = torch.reshape(ktraj[1,...], grid_size)
         ky = torch.reshape(ktraj[0,...], grid_size)
         if ndims == 2:
@@ -268,11 +194,13 @@ def to_2d(ktraj, grid_size, use_torch=True):
             kz = torch.reshape(ktraj[2,...], grid_size)
             return kx, ky, kz
     else:
-        kx = ktraj[1,...]
-        ky = ktraj[0,...]
-        kx = np.reshape(kx, (nlines, klen))
-        ky = np.reshape(ky, (nlines, klen))
-        return kx, ky
+        kx = np.reshape(ktraj[1,...], grid_size)
+        ky = np.reshape(ktraj[0,...], grid_size)
+        if ndims == 2:
+            return kx, ky
+        if ndims == 3:
+            kz = np.reshape(ktraj[2,...], grid_size)
+            return kx, ky, kz
 
 def apply_rotation(angles, kx, ky, kz=None, ndims=None, masks=None):
     if ndims == 2:
@@ -320,6 +248,7 @@ def apply_translation(ts, kdata, kx, ky, kz=None, grid_size=None, ndims=None, ma
     return kdata
 
 def build_nufft(image, im_size, grid_size, numpoints):
+    """Init NUFFT objects."""
     nufft_ob = tkbn.KbNufft(
         im_size=im_size,
         grid_size=grid_size,
