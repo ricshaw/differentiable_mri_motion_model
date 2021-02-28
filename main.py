@@ -330,8 +330,9 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
 
     # Adjnufft back
     image_out = adjnufft_ob(kdata, ktraj)
-    image_out = torch.abs(image_out).to(dtype)
-    image_out = (image_out - image_out.min()) / (image_out.max() - image_out.min())
+
+    # Output image
+    image_out = utils.normalise_image(image_out).to(dtype)
     return image_out, kdata, kx_new, ky_new, kz_new
 
 def gen_movement_opt(image, ndims,
@@ -353,8 +354,7 @@ def gen_movement_opt(image, ndims,
         image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten(), kz_new.flatten())))
 
     # Output image
-    image_out = torch.abs(image_out).to(dtype)
-    image_out = (image_out - image_out.min()) / (image_out.max() - image_out.min())
+    image_out = utils.normalise_image(image_out).to(dtype)
     return image_out, kdata, kx_new, ky_new, kz_new
 
 
