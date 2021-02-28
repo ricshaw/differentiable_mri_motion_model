@@ -81,7 +81,7 @@ def sample_movements(n_movements, ndims=2):
         A[:ndims,:ndims] = R.to(device)
         A[:ndims,ndims] = t.to(device)
         affines.append(A)
-    return affines
+    return affines, angles, trans
 
 def sample_movements_log(n_movements):
     log_R = 0.05*torch.randn(n_movements+1, 3, dtype=dtype, device=device)
@@ -274,7 +274,7 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     korig = ktraj.clone()
 
     # Sample affines
-    affines = sample_movements(n_movements, ndims)
+    affines, angles, ts = sample_movements(n_movements, ndims)
 
     # Generate k-space masks
     masks = gen_masks(n_movements, locs, grid_size)
@@ -295,37 +295,16 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
                 plt.imshow(m[int(m.shape[0]//2),...])
 
     # Apply rotation component
-    ktrajs = []
-    if ndims == 2:
-        kx_new = torch.zeros_like(kx, device=device)
-        ky_new = torch.zeros_like(ky, device=device)
-        kz_new = None
-        for i in range(len(affines)):
-            R = affines[i][:ndims,:ndims].to(device)
-            ktraji = rotate(ktraj, R)
-            ktrajs.append(ktraji)
-            kxi, kyi = to_2d(ktraji, grid_size)
-            kx_new[masks[i],...] = kxi[masks[i],...]
-            ky_new[masks[i],...] = kyi[masks[i],...]
-    if ndims == 3:
-        kx_new = torch.zeros_like(kx, device=device)
-        ky_new = torch.zeros_like(ky, device=device)
-        kz_new = torch.zeros_like(kz, device=device)
-        for i in range(len(affines)):
-            R = affines[i][:ndims,:ndims].to(device)
-            ktraji = rotate(ktraj, R)
-            ktrajs.append(ktraji)
-            kxi, kyi, kzi = to_2d(ktraji, grid_size)
-            kx_new[masks[i],...] = kxi[masks[i],...]
-            ky_new[masks[i],...] = kyi[masks[i],...]
-            kz_new[masks[i],...] = kzi[masks[i],...]
+    print('Applying rotational component')
+    kx_new, ky_new, kz_new = apply_rotation(angles, kx, ky, kz, ndims, masks)
 
-    mid = kx_new.shape[0]//2
-    b = int(kx_new.shape[0] * 3/100.0)
-    b = 0
-    print('k-space centre:', b)
-    kx_new[mid-b:mid+b,:] = kx[mid-b:mid+b,:]
-    ky_new[mid-b:mid+b,:] = ky[mid-b:mid+b,:]
+    # Fix k-space centre
+    if False:
+        mid = kx_new.shape[0]//2
+        b = int(kx_new.shape[0] * 3/100.0)
+        kx_new[mid-b:mid+b,:] = kx[mid-b:mid+b,:]
+        ky_new[mid-b:mid+b,:] = ky[mid-b:mid+b,:]
+
     ktraj = to_1d(kx_new, ky_new, kz_new)
     ktraj = torch.tensor(ktraj).to(dtype)
 
@@ -342,7 +321,6 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
 
     # Apply translational component
     print('Applying translational component')
-    ts = [a[:ndims,ndims] for a in affines]
     kdata = apply_translation(ts, kdata, kx_new, ky_new, kz_new, grid_size, ndims, masks)
 
     # Plot the k-space data on log-scale
@@ -355,7 +333,6 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     image_out = torch.abs(image_out).to(dtype)
     image_out = (image_out - image_out.min()) / (image_out.max() - image_out.min())
     return image_out, kdata, kx_new, ky_new, kz_new
-
 
 def gen_movement_opt(image, ndims,
                      n_movements, locs, ts, angles,
@@ -545,7 +522,7 @@ if __name__ == '__main__':
             visualisation.animate_3d(ims, image_np, target_np, losses=None)
 
     # Optimize...
-    n_iter = 100
+    n_iter = 20
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()

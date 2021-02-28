@@ -76,7 +76,7 @@ def plot_kdata(kdata, ndims=2):
         plt.title('k-space data, log10 scale')
     if ndims == 3:
         fig, axs = plt.subplots(1,3)
-        visualisation.show_3d(np.log10(np.abs(kdata)), axs)
+        show_3d(np.log10(np.abs(kdata)), axs)
         plt.tight_layout()
         plt.suptitle('k-space data, log10 scale')
     plt.show()
