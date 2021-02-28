@@ -90,7 +90,7 @@ def gen_masks(n_movements, locs, grid_size, use_torch=True):
             masks.append(np.ones(grid_size))
         return masks
 
-def gen_ktraj(nlines, klen, kdepth=None, use_torch=True):
+def gen_ktraj(nlines, klen, kdepth=None, use_torch=True, device=None):
     """Generate kx, ky, kz."""
     if use_torch:
         if kdepth is None:
@@ -122,14 +122,14 @@ def build_kspace(image_shape, sampling_rate, device=None):
         kr = int(image_shape[0] * sampling_rate)
         kc = int(image_shape[1] * sampling_rate)
         grid_size = (kr, kc)
-        kx, ky = gen_ktraj(kr, kc)
+        kx, ky = gen_ktraj(kr, kc, device=device)
         kz = None
     if ndims == 3:
         kr = int(image_shape[0] * sampling_rate)
         kc = int(image_shape[1] * sampling_rate)
         kd = int(image_shape[2] * sampling_rate)
         grid_size = (kr, kc, kd)
-        kx, ky, kz = gen_ktraj(kr, kc, kd)
+        kx, ky, kz = gen_ktraj(kr, kc, kd, device=device)
     return kx, ky, kz, grid_size
 
 def apply_rotation(angles, kx, ky, kz=None, ndims=None, masks=None):
