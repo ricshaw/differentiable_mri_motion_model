@@ -25,7 +25,8 @@ numpoints = 6
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
 matplotlib.use("Agg") if animate else None
-
+#torch.autograd.set_detect_anomaly(True)
+#torch.cuda.empty_cache()
 
 def animate_2d(ims, image1=None, image2=None, losses=None):
     h = []
@@ -304,18 +305,22 @@ def gen_masks(n_movements, locs, grid_size, use_torch=True):
     if use_torch:
         masks = []
         if n_movements > 0:
-            mask = torch.zeros(grid_size, device=device)
-            mask[0:locs[0],...] = 1
+            #mask = torch.zeros(grid_size, device=device)
+            #mask[0:locs[0],...] = 1
+            mask = torch.arange(0,locs[0],dtype=torch.long,device=device)
             masks.append(mask)
             for i in range(1,n_movements):
-                mask = torch.zeros(grid_size, device=device)
-                mask[locs[i-1]:locs[i],...] = 1
+                #mask = torch.zeros(grid_size, device=device)
+                #mask[locs[i-1]:locs[i],...] = 1
+                mask = torch.arange(locs[i-1],locs[i],dtype=torch.long,device=device)
                 masks.append(mask)
-            mask = torch.zeros(grid_size, device=device)
-            mask[locs[-1]::,...] = 1
+            #mask = torch.zeros(grid_size, device=device)
+            #mask[locs[-1]::,...] = 1
+            mask = torch.arange(locs[-1],grid_size[0],dtype=torch.long,device=device)
             masks.append(mask)
         else:
-            masks.append(torch.ones(grid_size, device=device))
+            #masks.append(torch.ones(grid_size, device=device))
+            masks.append(torch.arange(0,grid_size[0],dtype=torch.long),device=device)
         return masks
     else:
         masks = []
@@ -416,12 +421,12 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     ktraj = to_1d(kx, ky, kz).to(device)
     korig = ktraj.clone()
 
+    # Sample affines
     affines = sample_movements(n_movements, ndims)
-    #affines = combine_affines(affines)
 
     # Generate k-space masks
     masks = gen_masks(n_movements, locs, grid_size)
-    if debug:
+    if False:
         fig = plt.figure()
         nplots = np.minimum(10,len(masks))
         for i in range(nplots):
@@ -448,8 +453,10 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
             ktraji = rotate(ktraj, R)
             ktrajs.append(ktraji)
             kxi, kyi = to_2d(ktraji, grid_size)
-            kx_new += masks[i] * kxi
-            ky_new += masks[i] * kyi
+            #kx_new += masks[i] * kxi
+            #ky_new += masks[i] * kyi
+            kx_new[masks[i],...] = kxi[masks[i],...]
+            ky_new[masks[i],...] = kyi[masks[i],...]
     if ndims == 3:
         kx_new = torch.zeros_like(kx, device=device)
         ky_new = torch.zeros_like(ky, device=device)
@@ -459,9 +466,12 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
             ktraji = rotate(ktraj, R)
             ktrajs.append(ktraji)
             kxi, kyi, kzi = to_2d(ktraji, grid_size)
-            kx_new += masks[i] * kxi
-            ky_new += masks[i] * kyi
-            kz_new += masks[i] * kzi
+            #kx_new += masks[i] * kxi
+            #ky_new += masks[i] * kyi
+            #kz_new += masks[i] * kzi
+            kx_new[masks[i],...] = kxi[masks[i],...]
+            ky_new[masks[i],...] = kyi[masks[i],...]
+            kz_new[masks[i],...] = kzi[masks[i],...]
 
     mid = kx_new.shape[0]//2
     b = int(kx_new.shape[0] * 3/100.0)
@@ -503,8 +513,10 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
         t = affines[i][:ndims,ndims]
         print(i,t)
         kdata_i = translate_opt(kdata, ktraj, t)
-        kdata_new += masks[i] * kdata_i
-    kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
+        #kdata_new += masks[i] * kdata_i
+        kdata_new.real[masks[i],...] = kdata_i.real[masks[i],...]
+        kdata_new.imag[masks[i],...] = kdata_i.imag[masks[i],...]
+    #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
     kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
 
     # Plot the k-space data on log-scale
@@ -532,8 +544,10 @@ def gen_movement_opt(image, ndims,
             ang = torch.deg2rad(angles[i])
             kyi = torch.cos(ang)*ky - torch.sin(ang)*kx
             kxi = torch.sin(ang)*ky + torch.cos(ang)*kx
-            kx_new += masks[i] * kxi
-            ky_new += masks[i] * kyi
+            #kx_new += masks[i] * kxi
+            #ky_new += masks[i] * kyi
+            kx_new[masks[i],...] = kxi[masks[i],...]
+            ky_new[masks[i],...] = kyi[masks[i],...]
 
     if ndims == 3:
         kx_new = torch.zeros_like(kx, device=device)
@@ -549,9 +563,12 @@ def gen_movement_opt(image, ndims,
             kyi = (cax*cay)*ky + (cax*say*saz - sax*caz)*kx + (cax*say*caz + sax*saz)*kz
             kxi = (sax*cay)*ky + (sax*say*saz + cax*caz)*kx + (sax*say*caz - cax*saz)*kz
             kzi = (-say)*ky + (cay*saz)*kx + (cay*caz)*kz
-            kx_new += masks[i] * kxi
-            ky_new += masks[i] * kyi
-            kz_new += masks[i] * kzi
+            #kx_new += masks[i] * kxi
+            #ky_new += masks[i] * kyi
+            #kz_new += masks[i] * kzi
+            kx_new[masks[i],...] = kxi[masks[i],...]
+            ky_new[masks[i],...] = kyi[masks[i],...]
+            kz_new[masks[i],...] = kzi[masks[i],...]
 
     # Apply translational component
     kdata = torch.reshape(kdata, grid_size)
@@ -562,7 +579,9 @@ def gen_movement_opt(image, ndims,
             kdata_i = translate_opt(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())), t)
         if ndims == 3:
             kdata_i = translate_opt(kdata, torch.stack((ky_new.flatten(), kx_new.flatten(), kz_new.flatten())), t)
-        kdata_new += masks[i] * kdata_i
+        kdata_new.real[masks[i],...] = kdata_i.real[masks[i],...]
+        kdata_new.imag[masks[i],...] = kdata_i.imag[masks[i],...]
+        #kdata_new += masks[i] * kdata_i
     #kdata_new[mid-b:mid+b,:] = kdata[mid-b:mid+b,:]
     kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
 
@@ -581,9 +600,9 @@ if __name__ == '__main__':
 
     # Load image
     #image = shepp_logan_phantom().astype(np.complex)
-    image = utils.load_png('./data/sample_2d.png').astype(np.complex)
-    #image = utils.load_nii_image('./data/sample_3d.nii.gz')
-    #image = zoom(image, 0.75).astype(np.complex)
+    #image = utils.load_png('./data/sample_2d.png').astype(np.complex)
+    image = utils.load_nii_image('./data/sample_3d.nii.gz')
+    image = zoom(image, 0.5).astype(np.complex)
     ndims = len(image.shape)
 
     # Visualise
@@ -601,7 +620,7 @@ if __name__ == '__main__':
     kx_init, ky_init, kz_init, grid_size = build_kspace(image.shape, sampling_rate)
 
     # Generate movement
-    n_movements = 10
+    n_movements = 20
     locs = sorted(np.random.choice(kx_init.shape[0], n_movements))
     image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement(image,
                                                                 kx_init, ky_init, kz_init,
