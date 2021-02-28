@@ -19,6 +19,15 @@ from pytorch3d.transforms.so3 import (
     so3_relative_angle,
 )
 
+# Config
+debug = False
+animate = True
+dtype = torch.float32
+complex_dtype = torch.complex64
+numpoints = 6
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print('device:', device)
+matplotlib.use("Agg") if animate else None
 
 def sample_movements(n_movements, ndims):
     """Sample movement affine transforms."""
@@ -192,13 +201,7 @@ def build_nufft(image, im_size, grid_size, numpoints):
         ).to(image).to(device)
     return nufft_ob, adjnufft_ob
 
-def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=None, debug=False):
-
-    # Convert image to tensor and unsqueeze coil and batch dimension
-    ndims = len(image.shape)
-    im_size = image.shape
-    image = torch.tensor(image).to(complex_dtype).unsqueeze(0).unsqueeze(0).to(device)
-    print('image shape: {}'.format(image.shape))
+def gen_movement(image, ndims, kx, ky, kz=None, grid_size=None, n_movements=None, locs=None, debug=False):
 
     # Sample affines
     affines, angles, ts = sample_movements(n_movements, ndims)
@@ -288,22 +291,13 @@ def gen_movement_opt(image, ndims,
 
 if __name__ == '__main__':
 
-    # Config
-    debug = True
-    animate = True
-    dtype = torch.float32
-    complex_dtype = torch.complex64
-    numpoints = 6
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print('device:', device)
-    matplotlib.use("Agg") if animate else None
-
     # Load image
     #image = shepp_logan_phantom().astype(np.complex)
     image = utils.load_png('./data/sample_2d.png').astype(np.complex)
     #image = utils.load_nii_image('./data/sample_3d.nii.gz')
     #image = zoom(image, 0.5).astype(np.complex)
     ndims = len(image.shape)
+    im_size = image.shape
 
     # Visualise
     if debug:
@@ -316,14 +310,17 @@ if __name__ == '__main__':
         plt.suptitle('Input image')
         plt.tight_layout()
 
+    # Convert image to tensor and unsqueeze coil and batch dimension
+    image = torch.tensor(image).to(complex_dtype).unsqueeze(0).unsqueeze(0).to(device)
+
     # Create a k-space trajectory
     sampling_rate = 1.0
-    kx_init, ky_init, kz_init, grid_size = build_kspace(image.shape, sampling_rate, device=device)
+    kx_init, ky_init, kz_init, grid_size = build_kspace(im_size, sampling_rate, device=device)
 
     # Generate movement
     n_movements = 10
     locs = sorted(np.random.choice(kx_init.shape[0], n_movements))
-    image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement(image,
+    image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement(image, ndims,
                                                                 kx_init, ky_init, kz_init,
                                                                 grid_size=grid_size,
                                                                 n_movements=n_movements,
@@ -331,9 +328,10 @@ if __name__ == '__main__':
                                                                 debug=True)
 
     # Show the images
+    image_np = np.abs(np.squeeze(image.detach().cpu().numpy()))
     image_out_np = np.abs(np.squeeze(image_out.detach().cpu().numpy()))
     image_out_np = utils.normalise_image(image_out_np, use_torch=False)
-    diff = np.abs(image - image_out_np)
+    diff = np.abs(image_np - image_out_np)
     err = diff.sum() / diff.size
 
     if ndims == 2:
@@ -363,6 +361,7 @@ if __name__ == '__main__':
     target = image_out.clone().to(dtype)
     target = utils.normalise_image(target, use_torch=True)
     target.requires_grad = False
+    print('target', target.dtype, target.shape, target.min(), target.max())
 
     kdata_target = kdata_out.clone()
     kdata_target.requires_grad = False
@@ -376,16 +375,9 @@ if __name__ == '__main__':
         kz_target.requires_grad = False
 
     # Starting image
-    image = torch.tensor(image).to(dtype)
-    image = utils.normalise_image(image.squeeze(), use_torch=True)
     image.requires_grad = True
-    print('target', target.dtype, target.shape, target.min(), target.max())
-    print('input', image.dtype, image.shape, image.min(), image.max())
-    im_size = image.shape
-    image_tensor = image.to(complex_dtype).unsqueeze(0).unsqueeze(0).to(device)
 
     # Visualise
-    image_np = image.detach().cpu().numpy()
     target_np = target.squeeze().detach().cpu().numpy()
     if ndims == 2:
         fig = plt.figure()
@@ -414,8 +406,8 @@ if __name__ == '__main__':
         korig = torch.stack((ky.flatten(), kx.flatten(), kz.flatten()))
 
     # Init NUFFT objects
-    nufft_ob, adjnufft_ob = build_nufft(image_tensor, im_size, grid_size, numpoints)
-    kdata_orig = nufft_ob(image_tensor, korig).to(device)
+    nufft_ob, adjnufft_ob = build_nufft(image, im_size, grid_size, numpoints)
+    kdata_orig = nufft_ob(image, korig).to(device)
     kdata = kdata_orig.clone().detach()
     kdata.requires_grad = True
 
@@ -464,7 +456,7 @@ if __name__ == '__main__':
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()
-        image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement_opt(image_tensor, ndims,
+        image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement_opt(image, ndims,
                                                                         ts, angles,
                                                                         kdata, kx, ky, kz,
                                                                         grid_size, adjnufft_ob,
