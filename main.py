@@ -115,7 +115,7 @@ def gen_ktraj(nlines, klen, kdepth=None, use_torch=True):
         kx, ky = np.meshgrid(kx, ky)
         return kx, ky
 
-def build_kspace(image_shape, sampling_rate):
+def build_kspace(image_shape, sampling_rate, device=None):
     """Construct the k-space trajectory."""
     ndims = len(image_shape)
     if ndims == 2:
@@ -318,7 +318,7 @@ if __name__ == '__main__':
 
     # Create a k-space trajectory
     sampling_rate = 1.0
-    kx_init, ky_init, kz_init, grid_size = build_kspace(image.shape, sampling_rate)
+    kx_init, ky_init, kz_init, grid_size = build_kspace(image.shape, sampling_rate, device=device)
 
     # Generate movement
     n_movements = 10
