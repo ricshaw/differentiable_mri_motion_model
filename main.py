@@ -334,28 +334,29 @@ if __name__ == '__main__':
     diff = np.abs(image_np - image_out_np)
     err = diff.sum() / diff.size
 
-    if ndims == 2:
-        plt.figure()
-        plt.imshow(image_out_np, cmap='gray', vmin=0, vmax=1)
-        plt.title('Output image')
-        plt.tight_layout()
+    if debug:
+        if ndims == 2:
+            plt.figure()
+            plt.imshow(image_out_np, cmap='gray', vmin=0, vmax=1)
+            plt.title('Output image')
+            plt.tight_layout()
 
-        plt.figure()
-        plt.imshow(diff, cmap='jet', vmin=0, vmax=1)
-        plt.title('Diff image')
-        plt.tight_layout()
+            plt.figure()
+            plt.imshow(diff, cmap='jet', vmin=0, vmax=1)
+            plt.title('Diff image')
+            plt.tight_layout()
 
-    if ndims == 3:
-        fig, axs = plt.subplots(1,3)
-        visualisation.show_3d(image_out_np, axs)
-        plt.suptitle('Output image')
-        plt.tight_layout()
+        if ndims == 3:
+            fig, axs = plt.subplots(1,3)
+            visualisation.show_3d(image_out_np, axs)
+            plt.suptitle('Output image')
+            plt.tight_layout()
 
-        fig, axs = plt.subplots(1,3)
-        visualisation.show_3d(diff, axs, cmap='jet')
-        plt.suptitle('Diff image')
-        plt.tight_layout()
-    plt.show()
+            fig, axs = plt.subplots(1,3)
+            visualisation.show_3d(diff, axs, cmap='jet')
+            plt.suptitle('Diff image')
+            plt.tight_layout()
+        plt.show()
 
     # Target images
     target = image_out.clone().to(dtype)
@@ -379,14 +380,15 @@ if __name__ == '__main__':
 
     # Visualise
     target_np = target.squeeze().detach().cpu().numpy()
-    if ndims == 2:
-        fig = plt.figure()
-        plt.imshow(target_np, cmap='gray')
-    if ndims == 3:
-        fig, axs = plt.subplots(1,3)
-        visualisation.show_3d(target_np, axs)
-    plt.suptitle('target')
-    plt.show()
+    if debug:
+        if ndims == 2:
+            fig = plt.figure()
+            plt.imshow(target_np, cmap='gray')
+        if ndims == 3:
+            fig, axs = plt.subplots(1,3)
+            visualisation.show_3d(target_np, axs)
+        plt.suptitle('target')
+        plt.show()
 
     # Init k-space trajectory
     if ndims == 2:
