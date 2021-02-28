@@ -335,8 +335,7 @@ if __name__ == '__main__':
     image_out_np = np.abs(np.squeeze(image_out.detach().cpu().numpy()))
     image_out_np = utils.normalise_image(image_out_np, use_torch=False)
     diff = np.abs(image - image_out_np)
-    err = diff.sum() / image_out_np.size
-    print('err', err)
+    err = diff.sum() / diff.size
 
     if ndims == 2:
         plt.figure()
