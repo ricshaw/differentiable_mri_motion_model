@@ -19,6 +19,7 @@ from pytorch3d.transforms.so3 import (
     so3_relative_angle,
 )
 
+debug = True
 animate = True
 dtype = torch.float32
 complex_dtype = torch.complex64
@@ -27,75 +28,6 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
 matplotlib.use("Agg") if animate else None
 
-
-def image_loss(target, image):
-    target = torch.abs(target)
-    image = torch.abs(image)
-    target = (target - torch.mean(target)) / torch.std(target)
-    image = (image - torch.mean(image)) / torch.std(image)
-    return torch.sum((target - image)**2)
-
-def kspace_loss(F_target, F):
-    return torch.sum( torch.abs(F_target.real - F.real) ) + torch.sum( torch.abs(F_target.imag - F.imag) )
-
-def plot_kdata(kdata, ndims=2):
-    if ndims == 2:
-        plt.figure()
-        plt.imshow(np.log10(np.abs(kdata)), cmap='gray')
-        plt.tight_layout()
-        plt.title('k-space data, log10 scale')
-    if ndims == 3:
-        fig, axs = plt.subplots(1,3)
-        visualisation.show_3d(np.log10(np.abs(kdata)), axs)
-        plt.tight_layout()
-        plt.suptitle('k-space data, log10 scale')
-    plt.show()
-
-def plot_ktraj(kx, ky, kz=None):
-    if kz is None:
-        kx_np = kx.detach().cpu().numpy()
-        ky_np = ky.detach().cpu().numpy()
-        plt.figure()
-        plt.plot(kx_np[:,:].T, -ky_np[:,:].T)
-        plt.axis('equal')
-        plt.title('k-space trajectory')
-        plt.tight_layout()
-    else:
-        kx_np = kx.detach().cpu().numpy()
-        ky_np = ky.detach().cpu().numpy()
-        kz_np = kz.detach().cpu().numpy()
-        fig, axs = plt.subplots(1,3)
-        axs[0].plot(kx_np[:,:,int(kx_np.shape[2]//2)].T, -ky_np[:,:,int(ky_np.shape[2]//2)].T)
-        axs[1].plot(kx_np[:,int(kx_np.shape[1]//2),:].T, -kz_np[:,int(kz_np.shape[1]//2),:].T)
-        axs[2].plot(ky_np[int(ky_np.shape[0]//2),...].T, -kz_np[int(kz_np.shape[0]//2),...].T)
-        plt.suptitle('k-space trajectory')
-        plt.tight_layout()
-
-def plot_ktraj_image(kx, ky, kz=None):
-    if kz is None:
-        kx_np = kx.detach().cpu().numpy()
-        ky_np = ky.detach().cpu().numpy()
-        fig, axs = plt.subplots(1,2)
-        axs[0].imshow(kx_np)
-        axs[0].set_title('kx')
-        axs[1].imshow(ky_np)
-        axs[1].set_title('ky')
-        plt.suptitle('k-space trajectory')
-        plt.tight_layout()
-    else:
-        kx_np = kx.detach().cpu().numpy()
-        ky_np = ky.detach().cpu().numpy()
-        kz_np = kz.detach().cpu().numpy()
-        fig, axs = plt.subplots(1,3)
-        axs[0].imshow(kx_np[:,:,int(kx_np.shape[2]//2)])
-        axs[1].imshow(ky_np[:,int(ky_np.shape[1]//2),:])
-        axs[2].imshow(kz_np[int(kz_np.shape[0]//2),...])
-        axs[0].set_title('kx')
-        axs[1].set_title('ky')
-        axs[2].set_title('kz')
-        plt.suptitle('k-space trajectory')
-        plt.tight_layout()
-    plt.show()
 
 def rotation_matrix_2d(ang, use_torch=True):
     """2D rotation matrix."""
@@ -470,8 +402,8 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
 
     # Plot ktraj
     if debug:
-        plot_ktraj(kx_new, ky_new, kz_new)
-        plot_ktraj_image(kx_new, ky_new, kz_new)
+        visualisation.plot_ktraj(kx_new, ky_new, kz_new)
+        visualisation.plot_ktraj_image(kx_new, ky_new, kz_new)
 
     # create NUFFT objects, use 'ortho' for orthogonal FFTs
     nufft_ob, adjnufft_ob = build_nufft(image, im_size, grid_size, numpoints)
@@ -487,7 +419,7 @@ def gen_movement(image, kx, ky, kz=None, grid_size=None, n_movements=None, locs=
     # Plot the k-space data on log-scale
     if debug:
         kdata_numpy = np.reshape(kdata.detach().cpu().numpy(), grid_size)
-        plot_kdata(kdata_numpy, ndims)
+        visualisation.plot_kdata(kdata_numpy, ndims)
 
     # Adjnufft back
     image_out = adjnufft_ob(kdata, ktraj)
@@ -530,14 +462,15 @@ if __name__ == '__main__':
     ndims = len(image.shape)
 
     # Visualise
-    if ndims == 2:
-        fig = plt.figure()
-        plt.imshow(np.abs(image), cmap='gray')
-    if ndims == 3:
-        fig, axs = plt.subplots(1,3)
-        visualisation.show_3d(np.abs(image), axs, vmin=0, vmax=1)
-    plt.suptitle('Input image')
-    plt.tight_layout()
+    if debug:
+        if ndims == 2:
+            fig = plt.figure()
+            plt.imshow(np.abs(image), cmap='gray')
+        if ndims == 3:
+            fig, axs = plt.subplots(1,3)
+            visualisation.show_3d(np.abs(image), axs, vmin=0, vmax=1)
+        plt.suptitle('Input image')
+        plt.tight_layout()
 
     # Create a k-space trajectory
     sampling_rate = 1.0
@@ -555,7 +488,7 @@ if __name__ == '__main__':
 
     # Show the images
     image_out_np = np.abs(np.squeeze(image_out.detach().cpu().numpy()))
-    image_out_np = utils.normalise_image(image_out_np)
+    image_out_np = utils.normalise_image(image_out_np, use_torch=False)
     diff = np.abs(image - image_out_np)
     err = diff.sum() / image_out_np.size
     print('err', err)
@@ -583,10 +516,9 @@ if __name__ == '__main__':
         plt.tight_layout()
     plt.show()
 
-    # Targets
+    # Target images
     target = image_out.clone().to(dtype)
-    target = torch.abs(target)
-    target = (target - target.min()) / (target.max() - target.min())
+    target = utils.normalise_image(target, use_torch=True)
     target.requires_grad = False
 
     kdata_target = kdata_out.clone()
@@ -602,14 +534,14 @@ if __name__ == '__main__':
 
     # Starting image
     image = torch.tensor(image).to(dtype)
-    image = torch.abs(image.squeeze())
-    image = (image - image.min()) / (image.max() - image.min())
+    image = utils.normalise_image(image.squeeze(), use_torch=True)
     image.requires_grad = True
     print('target', target.dtype, target.shape, target.min(), target.max())
     print('input', image.dtype, image.shape, image.min(), image.max())
     im_size = image.shape
     image_tensor = image.to(complex_dtype).unsqueeze(0).unsqueeze(0).to(device)
 
+    # Visualise
     image_np = image.detach().cpu().numpy()
     target_np = target.squeeze().detach().cpu().numpy()
     if ndims == 2:

@@ -68,4 +68,66 @@ def animate_3d(ims, image1=None, image2=None, losses=None):
         h += [im7]
     ims.append(h)
 
+def plot_kdata(kdata, ndims=2):
+    if ndims == 2:
+        plt.figure()
+        plt.imshow(np.log10(np.abs(kdata)), cmap='gray')
+        plt.tight_layout()
+        plt.title('k-space data, log10 scale')
+    if ndims == 3:
+        fig, axs = plt.subplots(1,3)
+        visualisation.show_3d(np.log10(np.abs(kdata)), axs)
+        plt.tight_layout()
+        plt.suptitle('k-space data, log10 scale')
+    plt.show()
+
+def plot_ktraj(kx, ky, kz=None):
+    if kz is None:
+        kx_np = kx.detach().cpu().numpy()
+        ky_np = ky.detach().cpu().numpy()
+        plt.figure()
+        plt.plot(kx_np[:,:].T, -ky_np[:,:].T)
+        plt.axis('equal')
+        plt.title('k-space trajectory')
+        plt.tight_layout()
+    else:
+        kx_np = kx.detach().cpu().numpy()
+        ky_np = ky.detach().cpu().numpy()
+        kz_np = kz.detach().cpu().numpy()
+        fig, axs = plt.subplots(1,3)
+        axs[0].plot(kx_np[:,:,int(kx_np.shape[2]//2)].T, -ky_np[:,:,int(ky_np.shape[2]//2)].T)
+        axs[1].plot(kx_np[:,int(kx_np.shape[1]//2),:].T, -kz_np[:,int(kz_np.shape[1]//2),:].T)
+        axs[2].plot(ky_np[int(ky_np.shape[0]//2),...].T, -kz_np[int(kz_np.shape[0]//2),...].T)
+        plt.suptitle('k-space trajectory')
+        plt.tight_layout()
+
+def plot_ktraj_image(kx, ky, kz=None):
+    if kz is None:
+        kx_np = kx.detach().cpu().numpy()
+        ky_np = ky.detach().cpu().numpy()
+        fig, axs = plt.subplots(1,2)
+        axs[0].imshow(kx_np)
+        axs[0].set_title('kx')
+        axs[1].imshow(ky_np)
+        axs[1].set_title('ky')
+        plt.suptitle('k-space trajectory')
+        plt.tight_layout()
+    else:
+        kx_np = kx.detach().cpu().numpy()
+        ky_np = ky.detach().cpu().numpy()
+        kz_np = kz.detach().cpu().numpy()
+        fig, axs = plt.subplots(1,3)
+        axs[0].imshow(kx_np[:,:,int(kx_np.shape[2]//2)])
+        axs[1].imshow(ky_np[:,int(ky_np.shape[1]//2),:])
+        axs[2].imshow(kz_np[int(kz_np.shape[0]//2),...])
+        axs[0].set_title('kx')
+        axs[1].set_title('ky')
+        axs[2].set_title('kz')
+        plt.suptitle('k-space trajectory')
+        plt.tight_layout()
+    plt.show()
+
+
+
+
 
