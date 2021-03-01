@@ -32,12 +32,18 @@ matplotlib.use("Agg") if animate else None
 def sample_movements(n_movements, ndims):
     """Sample movement affine transforms."""
     affines = []
+    angles_std = 3.0
+    trans_std = 5.0
     if ndims == 2:
-        angles = torch.FloatTensor(n_movements+1,).uniform_(-15.0, 15.0).to(device)
-        trans = torch.FloatTensor(n_movements+1,2).uniform_(-10.0, 10.0).to(device)
+        #angles = torch.FloatTensor(n_movements+1,).uniform_(-15.0, 15.0).to(device)
+        #trans = torch.FloatTensor(n_movements+1,2).uniform_(-10.0, 10.0).to(device)
+        angles = angles_std * torch.randn((n_movements+1,), dtype=dtype, device=device)
+        trans = trans_std * torch.randn((n_movements+1,2), dtype=dtype, device=device)
     if ndims == 3:
-        angles = torch.FloatTensor(n_movements+1,ndims).uniform_(-15.0, 15.0).to(device)
-        trans = torch.FloatTensor(n_movements+1,ndims).uniform_(-10.0, 10.0).to(device)
+        #angles = torch.FloatTensor(n_movements+1,ndims).uniform_(-15.0, 15.0).to(device)
+        #trans = torch.FloatTensor(n_movements+1,ndims).uniform_(-10.0, 10.0).to(device)
+        angles = angles_std * torch.randn((n_movements+1,ndims), dtype=dtype, device=device)
+        trans = trans_std * torch.randn((n_movements+1,ndims), dtype=dtype, device=device)
     for i in range(n_movements+1):
         ang = angles[i]
         t = trans[i,:]
