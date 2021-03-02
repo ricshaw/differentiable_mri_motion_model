@@ -106,6 +106,19 @@ def gen_masks(n_movements, locs, grid_size, use_torch=True):
             masks.append(np.ones(grid_size))
         return masks
 
+def gen_masks_opt(prob, grid_size, nddims):
+    probs = torch.zeros((grid_size[0],2), dtype=dtype)
+    probs[:,0] = prob
+    probs[:,1] = 1.0 - prob
+    log_probs = torch.log(probs)
+    rows = F.gumbel_softmax(log_probs, tau=1, hard=True, eps=1e-10, dim=-1)[...,0].unsqueeze(0)
+    if ndims == 2:
+        mask = torch.einsum('ij,jk->jk', [rows, torch.ones(grid_size)]).to(device)
+    if ndims == 3:
+        mask = torch.einsum('ij,jkl->jkl', [rows, torch.ones(grid_size)]).to(device)
+    n_movements = torch.sum(rows).to(int).item()
+    return mask, n_movements
+
 def gen_ktraj(nlines, klen, kdepth=None, use_torch=True, device=None):
     """Generate kx, ky, kz."""
     if use_torch:
@@ -326,16 +339,7 @@ if __name__ == '__main__':
 
     # Movement prob
     prob = torch.tensor([0.05], requires_grad=True)
-    probs = torch.zeros((kx_init.shape[0],2), dtype=dtype)
-    probs[:,0] = prob
-    probs[:,1] = 1.0 - prob
-    log_probs = torch.log(probs)
-    rows = F.gumbel_softmax(log_probs, tau=1, hard=True, eps=1e-10, dim=-1)[...,0].unsqueeze(0)
-    if ndims == 2:
-        mask = torch.einsum('ij,jk->jk', [rows, torch.ones(grid_size)])
-    if ndims == 3:
-        mask = torch.einsum('ij,jkl->jkl', [rows, torch.ones(grid_size)])
-    n_movements = torch.sum(rows).to(int).item()
+    mask, n_movements = gen_masks_opt(prob, grid_size, ndims)
     print('n_movements:', n_movements)
 
     if debug:
