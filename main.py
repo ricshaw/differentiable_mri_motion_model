@@ -14,6 +14,9 @@ from scipy.linalg import logm, expm
 from scipy.ndimage import zoom
 from piq import ssim, SSIMLoss, MultiScaleSSIMLoss, VSILoss
 
+import torch.nn.functional as F
+#import torch.nn.functional.gumbel_softmax as gumbel_softmax
+
 from pytorch3d.transforms.so3 import (
     so3_exponential_map,
     so3_relative_angle,
@@ -323,9 +326,18 @@ if __name__ == '__main__':
     sampling_rate = 1.0
     kx_init, ky_init, kz_init, grid_size = build_kspace(im_size, sampling_rate, device=device)
 
+    # Movement prob
+    prob = torch.tensor([0.1], requires_grad=True)
+    probs = torch.zeros((kx_init.shape[0],2), dtype=dtype)
+    probs[:,0] = prob
+    probs[:,1] = 1.0 - prob
+    log_probs = torch.log(probs)
+    n = F.gumbel_softmax(log_probs, tau=1, hard=True, eps=1e-10, dim=-1)[...,0]
+    n_movements = torch.sum(n).to(int).item()
+    print('n_movements:', n_movements)
+
     # Generate movement
-    n_movements = 10
-    locs = sorted(np.random.choice(kx_init.shape[0], n_movements))
+    locs, _ = torch.sort(torch.randperm(kx_init.shape[0])[:n_movements])
     image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement(image, ndims, im_size,
                                                                 kx_init, ky_init, kz_init,
                                                                 grid_size=grid_size,
