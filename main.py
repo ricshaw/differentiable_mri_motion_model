@@ -6,6 +6,7 @@ import cv2
 import nibabel as nib
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchkbnufft as tkbn
 import utils
 import visualisation
@@ -13,9 +14,6 @@ from skimage.data import shepp_logan_phantom
 from scipy.linalg import logm, expm
 from scipy.ndimage import zoom
 from piq import ssim, SSIMLoss, MultiScaleSSIMLoss, VSILoss
-
-import torch.nn.functional as F
-#import torch.nn.functional.gumbel_softmax as gumbel_softmax
 
 from pytorch3d.transforms.so3 import (
     so3_exponential_map,
@@ -327,14 +325,28 @@ if __name__ == '__main__':
     kx_init, ky_init, kz_init, grid_size = build_kspace(im_size, sampling_rate, device=device)
 
     # Movement prob
-    prob = torch.tensor([0.1], requires_grad=True)
+    prob = torch.tensor([0.05], requires_grad=True)
     probs = torch.zeros((kx_init.shape[0],2), dtype=dtype)
     probs[:,0] = prob
     probs[:,1] = 1.0 - prob
     log_probs = torch.log(probs)
-    n = F.gumbel_softmax(log_probs, tau=1, hard=True, eps=1e-10, dim=-1)[...,0]
-    n_movements = torch.sum(n).to(int).item()
+    rows = F.gumbel_softmax(log_probs, tau=1, hard=True, eps=1e-10, dim=-1)[...,0].unsqueeze(0)
+    if ndims == 2:
+        mask = torch.einsum('ij,jk->jk', [rows, torch.ones(grid_size)])
+    if ndims == 3:
+        mask = torch.einsum('ij,jkl->jkl', [rows, torch.ones(grid_size)])
+    n_movements = torch.sum(rows).to(int).item()
     print('n_movements:', n_movements)
+
+    if debug:
+        mask_np = mask.detach().cpu().numpy()
+        if ndims == 2:
+            fig = plt.figure()
+            plt.imshow(mask_np)
+        if ndims == 3:
+            fig, axs = plt.subplots(1,3)
+            visualisation.show_3d(mask_np, axs, cmap='viridis', vmin=0, vmax=1)
+        plt.show()
 
     # Generate movement
     locs, _ = torch.sort(torch.randperm(kx_init.shape[0])[:n_movements])
