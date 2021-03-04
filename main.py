@@ -29,12 +29,12 @@ numpoints = 6
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print('device:', device)
 matplotlib.use("Agg") if animate else None
+torch.autograd.set_detect_anomaly(True)
+mode = 1
 
-def sample_movements(n_movements, ndims):
+def sample_movements(n_movements, ndims, angles_std=5.0, trans_std=10.0):
     """Sample movement affine transforms."""
     affines = []
-    angles_std = 3.0
-    trans_std = 5.0
     if ndims == 2:
         #angles = torch.FloatTensor(n_movements+1,).uniform_(-15.0, 15.0).to(device)
         #trans = torch.FloatTensor(n_movements+1,2).uniform_(-10.0, 10.0).to(device)
@@ -106,16 +106,17 @@ def gen_masks(n_movements, locs, grid_size, use_torch=True):
             masks.append(np.ones(grid_size))
         return masks
 
-def gen_masks_opt(prob, grid_size, nddims):
-    probs = torch.zeros((grid_size[0],2), dtype=dtype)
+def gen_mask_opt(prob, grid_size, nddims):
+    prob = prob.clamp(min=0.0, max=1.0).pow(2)
+    probs = torch.zeros((grid_size[0],2), dtype=dtype, device=device)
     probs[:,0] = prob
-    probs[:,1] = 1.0 - prob
-    log_probs = torch.log(probs)
+    probs[:,1] = 1.0 - probs[:,0]
+    log_probs = torch.log(probs + 1e-12)
     rows = F.gumbel_softmax(log_probs, tau=1, hard=True, eps=1e-10, dim=-1)[...,0].unsqueeze(0)
     if ndims == 2:
-        mask = torch.einsum('ij,jk->jk', [rows, torch.ones(grid_size)]).to(device)
+        mask = torch.einsum('ij,jk->jk', [rows, torch.ones(grid_size, device=device)])
     if ndims == 3:
-        mask = torch.einsum('ij,jkl->jkl', [rows, torch.ones(grid_size)]).to(device)
+        mask = torch.einsum('ij,jkl->jkl', [rows, torch.ones(grid_size, device=device)])
     n_movements = torch.sum(rows).to(int).item()
     return mask, n_movements
 
@@ -192,6 +193,39 @@ def apply_rotation(angles, kx, ky, kz=None, ndims=None, masks=None):
             kz_new[masks[i],...] = kzi[masks[i],...]
     return kx_new, ky_new, kz_new
 
+def apply_rotation2(angles, kx, ky, kz=None, ndims=None, mask=None):
+    """Apply rotation to k-space trajectory."""
+    if ndims == 2:
+        kx_new = torch.zeros_like(kx, device=device)
+        ky_new = torch.zeros_like(ky, device=device)
+        #kx_new = kx.clone().detach()
+        #ky_new = ky.clone().detach()
+        kz_new = None
+        for i in range(kx.shape[0]):
+            ang = torch.deg2rad(angles[i])
+            kyi = torch.cos(ang)*ky - torch.sin(ang)*kx
+            kxi = torch.sin(ang)*ky + torch.cos(ang)*kx
+            kx_new[i,...] = mask[i,...] * kxi[i,...] + (1.0-mask[i,...]) * kx[i,...]
+            ky_new[i,...] = mask[i,...] * kyi[i,...] + (1.0-mask[i,...]) * ky[i,...]
+    if ndims == 3:
+        kx_new = torch.zeros_like(kx, device=device)
+        ky_new = torch.zeros_like(ky, device=device)
+        kz_new = torch.zeros_like(kz, device=device)
+        for i in range(kx.shape[0]):
+            ang = torch.deg2rad(angles[i])
+            ax, ay, az = ang[0], ang[1], ang[2]
+            cax, sax = torch.cos(ax), torch.sin(ax)
+            cay, say = torch.cos(ay), torch.sin(ay)
+            caz, saz = torch.cos(az), torch.sin(az)
+
+            kyi = (cax*cay)*ky + (cax*say*saz - sax*caz)*kx + (cax*say*caz + sax*saz)*kz
+            kxi = (sax*cay)*ky + (sax*say*saz + cax*caz)*kx + (sax*say*caz - cax*saz)*kz
+            kzi = (-say)*ky + (cay*saz)*kx + (cay*caz)*kz
+            kx_new[i,...] = mask[i,...] * kxi[i,...] + (1.0-mask[i,...]) * kxi[i,...]
+            ky_new[i,...] = mask[i,...] * kyi[i,...] + (1.0-mask[i,...]) * kyi[i,...]
+            kz_new[i,...] = mask[i,...] * kzi[i,...] + (1.0-mask[i,...]) * kzi[i,...]
+    return kx_new, ky_new, kz_new
+
 def apply_translation(ts, kdata, kx, ky, kz=None, grid_size=None, ndims=None, masks=None):
     """Apply translation as phase shift to k-space."""
     kdata = torch.reshape(kdata, grid_size)
@@ -207,6 +241,23 @@ def apply_translation(ts, kdata, kx, ky, kz=None, grid_size=None, ndims=None, ma
     kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
     return kdata
 
+def apply_translation2(ts, kdata, kx, ky, kz=None, grid_size=None, ndims=None, mask=None):
+    """Apply translation as phase shift to k-space."""
+    kdata = torch.reshape(kdata, grid_size)
+    kdata_new = torch.zeros_like(kdata, device=device)
+    #kdata_new = kdata.clone().detach()
+    for i in range(grid_size[0]):
+        t = ts[i]
+        if ndims == 2:
+            kdata_i = utils.translate_opt(kdata, torch.stack((ky.flatten(), kx.flatten())), t, device=device)
+        if ndims == 3:
+            kdata_i = utils.translate_opt(kdata, torch.stack((ky.flatten(), kx.flatten(), kz.flatten())), t, device=device)
+        kdata_new.real[i,...] = mask[i,...] * kdata_i.real[i,...] + (1.0-mask[i,...]) * kdata_i.real[i,...]
+        kdata_new.imag[i,...] = mask[i,...] * kdata_i.imag[i,...] + (1.0-mask[i,...]) * kdata_i.imag[i,...]
+    #kdata = kdata_new.flatten().unsqueeze(0).unsqueeze(0)
+    #return kdata
+    return kdata_new.flatten().unsqueeze(0).unsqueeze(0)
+
 def build_nufft(image, im_size, grid_size, numpoints):
     """Init NUFFT objects."""
     nufft_ob = tkbn.KbNufft(
@@ -221,10 +272,13 @@ def build_nufft(image, im_size, grid_size, numpoints):
         ).to(image).to(device)
     return nufft_ob, adjnufft_ob
 
-def gen_movement(image, ndims, im_size, kx, ky, kz=None, grid_size=None, n_movements=None, locs=None, debug=False):
+def gen_movement(image, ndims, im_size,
+                 kx, ky, kz=None, grid_size=None,
+                 n_movements=None, locs=None, angles_std=None, trans_std=None,
+                 debug=False):
 
     # Sample affines
-    affines, angles, ts = sample_movements(n_movements, ndims)
+    affines, angles, ts = sample_movements(n_movements, ndims, angles_std, trans_std)
 
     # Generate k-space masks
     masks = gen_masks(n_movements, locs, grid_size)
@@ -308,6 +362,39 @@ def gen_movement_opt(image, ndims,
     image_out = utils.normalise_image(image_out).to(dtype)
     return image_out, kdata, kx_new, ky_new, kz_new
 
+def gen_movement_opt2(image, ndims,
+                     prob, trans_std, angles_std,
+                     kdata, kx, ky, kz=None,
+                     grid_size=None, adjnufft_ob=None):
+
+    # Sample mask
+    mask_opt, n_opt = gen_mask_opt(prob, grid_size, ndims)
+
+    # Sample rotations
+    if ndims == 2:
+        angles = angles_std**2 * torch.randn((grid_size[0],), dtype=dtype, device=device)
+    if ndims == 3:
+        angles = angles_std**2 * torch.randn((grid_size[0],ndims), dtype=dtype, device=device)
+
+    # Sample translations
+    ts = trans_std**2 * torch.randn((grid_size[0],ndims), dtype=dtype, device=device)
+
+    # Apply rotation component
+    kx_new, ky_new, kz_new = apply_rotation2(angles, kx, ky, kz, ndims, mask_opt)
+
+    # Apply translational component
+    kdata = apply_translation2(ts, kdata, kx_new, ky_new, kz_new, grid_size, ndims, mask_opt)
+
+    # Adjnufft back
+    if ndims == 2:
+        image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten())))
+    if ndims == 3:
+        image_out = adjnufft_ob(kdata, torch.stack((ky_new.flatten(), kx_new.flatten(), kz_new.flatten())))
+
+    # Output image
+    image_out = utils.normalise_image(image_out).to(dtype)
+    return image_out, kdata, kx_new, ky_new, kz_new, mask_opt, n_opt
+
 
 if __name__ == '__main__':
 
@@ -337,28 +424,18 @@ if __name__ == '__main__':
     sampling_rate = 1.0
     kx_init, ky_init, kz_init, grid_size = build_kspace(im_size, sampling_rate, device=device)
 
-    # Movement prob
-    prob = torch.tensor([0.05], requires_grad=True)
-    mask, n_movements = gen_masks_opt(prob, grid_size, ndims)
+    # Movements
+    n_movements = 10
+    angles_std_val = 5.0
+    trans_std_val = 10.0
     print('n_movements:', n_movements)
 
-    if debug:
-        mask_np = mask.detach().cpu().numpy()
-        if ndims == 2:
-            fig = plt.figure()
-            plt.imshow(mask_np)
-        if ndims == 3:
-            fig, axs = plt.subplots(1,3)
-            visualisation.show_3d(mask_np, axs, cmap='viridis', vmin=0, vmax=1)
-        plt.show()
-
     # Generate movement
-    locs, _ = torch.sort(torch.randperm(kx_init.shape[0])[:n_movements])
+    locs, _ = torch.sort(torch.randperm(grid_size[0])[:n_movements])
     image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement(image, ndims, im_size,
-                                                                kx_init, ky_init, kz_init,
-                                                                grid_size=grid_size,
-                                                                n_movements=n_movements,
-                                                                locs=locs,
+                                                                kx_init, ky_init, kz_init, grid_size=grid_size,
+                                                                n_movements=n_movements, locs=locs,
+                                                                angles_std=angles_std_val, trans_std=trans_std_val,
                                                                 debug=True)
 
     # Show the images
@@ -393,10 +470,9 @@ if __name__ == '__main__':
         plt.show()
 
     # Target images
-    target = image_out.clone().to(dtype)
-    target = utils.normalise_image(target, use_torch=True)
-    target.requires_grad = False
-    print('target', target.dtype, target.shape, target.min(), target.max())
+    image_target = image_out.clone().to(dtype)
+    image_target = utils.normalise_image(image_target, use_torch=True)
+    image_target.requires_grad = False
 
     kdata_target = kdata_out.clone()
     kdata_target.requires_grad = False
@@ -413,14 +489,14 @@ if __name__ == '__main__':
     image.requires_grad = True
 
     # Visualise
-    target_np = target.squeeze().detach().cpu().numpy()
+    image_target_np = image_target.squeeze().detach().cpu().numpy()
     if debug:
         if ndims == 2:
             fig = plt.figure()
-            plt.imshow(target_np, cmap='gray')
+            plt.imshow(image_target_np, cmap='gray')
         if ndims == 3:
             fig, axs = plt.subplots(1,3)
-            visualisation.show_3d(target_np, axs)
+            visualisation.show_3d(image_target_np, axs)
         plt.suptitle('target')
         plt.show()
 
@@ -429,16 +505,16 @@ if __name__ == '__main__':
         kx = kx_init.clone().detach()
         ky = ky_init.clone().detach()
         kz = None
-        kx.requires_grad = False
-        ky.requires_grad = False
+        kx.requires_grad = True
+        ky.requires_grad = True
         korig = torch.stack((ky.flatten(), kx.flatten()))
     if ndims == 3:
         kx = kx_init.clone().detach()
         ky = ky_init.clone().detach()
         kz = kz_init.clone().detach()
-        kx.requires_grad = False
-        ky.requires_grad = False
-        kz.requires_grad = False
+        kx.requires_grad = True
+        ky.requires_grad = True
+        kz.requires_grad = True
         korig = torch.stack((ky.flatten(), kx.flatten(), kz.flatten()))
 
     # Init NUFFT objects
@@ -453,29 +529,53 @@ if __name__ == '__main__':
     # Init optimization
     print('Optimizing...')
 
+    # Movement prob
+    prob_init = torch.tensor([0.5], dtype=dtype, device=device)
+    prob = prob_init.clone().detach()
+    prob.requires_grad = True
+    prob_target = torch.tensor([n_movements/grid_size[0]], dtype=dtype, device=device)
+    prob_target.requires_grad = False
+
     # Init translation
-    ts_init = 0.0*torch.randn(n_movements+1, ndims, dtype=dtype, device=device)
-    ts_init[0,:] = 0.
-    ts = ts_init.clone().detach()
-    ts.requires_grad = True
-    print(ts)
+    if mode == 1:
+        trans_init = 0.0*torch.randn(n_movements+1, ndims, dtype=dtype, device=device)
+        trans = trans_init.clone().detach()
+        trans.requires_grad = True
+
+    if mode == 2:
+        trans_std_init = torch.tensor([1.0], dtype=dtype, device=device)
+        trans_std = trans_std_init.clone().detach()
+        trans_std.requires_grad = True
+        trans_std_target = torch.tensor([trans_std_val], dtype=dtype, device=device)
+        trans_std_target.requires_grad = False
 
     # Init rotation
-    if ndims == 2:
-        angles_init = torch.FloatTensor(n_movements+1,).uniform_(-25.0, -25.0).to(device)
-        angles_init[0] = 45.0
-    if ndims == 3:
-        angles_init = torch.FloatTensor(n_movements+1,ndims).uniform_(-0.0, 0.0).to(device)
-        angles_init[0,0] = 45.0
-    angles = angles_init.clone().detach()
-    angles.requires_grad = True
-    print(angles)
+    if mode == 1:
+        if ndims == 2:
+            angles_init = torch.FloatTensor(n_movements+1,).uniform_(25.0, 25.0).to(device)
+            angles_init[0] = 45.0
+        if ndims == 3:
+            angles_init = torch.FloatTensor(n_movements+1,ndims).uniform_(0.0, 0.0).to(device)
+            angles_init[0,0] = 45.0
+        angles = angles_init.clone().detach()
+        angles.requires_grad = True
+
+    if mode == 2:
+        angles_std_init = torch.tensor([1.0], dtype=dtype, device=device)
+        angles_std = angles_std_init.clone().detach()
+        angles_std.requires_grad = True
+        angles_std_target = torch.tensor([angles_std_val], dtype=dtype, device=device)
+        angles_std_target.requires_grad = False
 
     # Init optimizer
-    optimizer = torch.optim.Adam([ts, angles], lr=1.)
+    if mode == 1:
+        optimizer = torch.optim.Adam([trans, angles], lr=1.)
+    if mode == 2:
+        optimizer = torch.optim.Adam([prob, angles_std, trans_std], lr=0.1)
 
     # Init loss functions
     l1_loss = nn.L1Loss()
+    mse_loss = nn.MSELoss()
 
     # Init animation
     if animate:
@@ -483,24 +583,40 @@ if __name__ == '__main__':
         plt.tight_layout()
         ims = []
         if ndims == 2:
-            visualisation.animate_2d(ims, image_np, target_np, losses=None)
+            visualisation.animate_2d(ims, image_np, image_target_np, losses=None)
         if ndims == 3:
-            visualisation.animate_3d(ims, image_np, target_np, losses=None)
+            visualisation.animate_3d(ims, image_np, image_target_np, losses=None)
+
+    if debug:
+        if mode == 2:
+            fig, axs = plt.subplots(1,2)
 
     # Optimize...
     n_iter = 100
     losses = []
     for i in range(n_iter):
         optimizer.zero_grad()
-        image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement_opt(image, ndims,
-                                                                        ts, angles,
-                                                                        kdata, kx, ky, kz,
-                                                                        grid_size, adjnufft_ob,
-                                                                        masks)
-        print('output:', image_out.shape, image_out.dtype, 'target:', target.shape, target.dtype)
+        if mode == 1:
+            image_out, kdata_out, kx_out, ky_out, kz_out = gen_movement_opt(image, ndims,
+                                                                            trans, angles,
+                                                                            kdata, kx, ky, kz,
+                                                                            grid_size, adjnufft_ob,
+                                                                            masks)
+        if mode == 2:
+            image_out, kdata_out, kx_out, ky_out, kz_out, mask_out, n_out = gen_movement_opt2(image, ndims,
+                                                                                              prob, trans_std, angles_std,
+                                                                                              kdata, kx, ky, kz,
+                                                                                              grid_size, adjnufft_ob)
+            if debug:
+                image_out_np = image_out.squeeze().detach().cpu().numpy()
+                mask_np = mask_out.detach().cpu().numpy()
+                axs[0].imshow(mask_np, vmin=0, vmax=1)
+                axs[0].set_title('iter: %d, n: %.2f' % (i, n_out/grid_size[0]))
+                axs[1].imshow(image_out_np, cmap='gray')
+                plt.pause(0.001)
 
         # Loss functions
-        loss1 = 200. * l1_loss(image_out, target)
+        loss1 = 200. * l1_loss(image_out, image_target)
         loss2 = l1_loss(kdata_out.real, kdata_target.real)
         loss3 = l1_loss(kdata_out.imag, kdata_target.imag)
         loss4 = 100. * l1_loss(kx_out, kx_target)
@@ -512,11 +628,20 @@ if __name__ == '__main__':
             print('iter:', i, 'losses:', loss1.item(), loss2.item(), loss3.item(), loss4.item(), loss5.item(), loss6.item())
         else:
             print('iter:', i, 'losses:', loss1.item(), loss2.item(), loss3.item(), loss4.item(), loss5.item())
+        if mode == 2:
+            loss_prob = mse_loss(prob, prob_target)
+            loss_angles = mse_loss(angles_std, angles_std_target)
+            loss_trans = mse_loss(trans_std, trans_std_target)
+            loss += loss_prob + loss_angles + loss_trans
 
-        print('ts:', ts.detach().cpu().numpy())
-        print('angles:', angles.detach().cpu().numpy())
+        #print('trans:', trans.detach().cpu().numpy())
+        #print('angles:', angles.detach().cpu().numpy())
+        if mode == 2: print('prob:', prob.detach().cpu().numpy()**2, 'prob_target:', prob_target.detach().cpu().numpy()**2, 'grad:', prob.grad)
+        if mode == 2: print('angles_std:', angles_std.detach().cpu().numpy(), 'grad:', angles_std.grad)
+        if mode == 2: print('trans_std:', trans_std.detach().cpu().numpy(), 'grad:', trans_std.grad)
         loss.backward()
-        print('grads', angles.grad, ts.grad, kx.grad, ky.grad)
+        #loss.backward(retain_graph=True)
+        #print('grads', angles.grad, ts.grad, kx.grad, ky.grad)
         optimizer.step()
         losses.append(loss.item())
 
@@ -539,7 +664,7 @@ if __name__ == '__main__':
             fig, axs = plt.subplots(1,3)
             axs[0].imshow(image_out_np, cmap='gray')
             axs[0].set_title('output')
-            axs[1].imshow(target_np, cmap='gray')
+            axs[1].imshow(image_target_np, cmap='gray')
             axs[1].set_title('target')
             axs[2].plot(losses)
             axs[2].set_title('loss')
