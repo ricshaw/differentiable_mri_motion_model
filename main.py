@@ -21,8 +21,8 @@ from pytorch3d.transforms.so3 import (
 )
 
 # Config
-debug = True
-animate = False
+debug = False
+animate = True
 dtype = torch.float32
 complex_dtype = torch.complex64
 numpoints = 6
@@ -194,8 +194,6 @@ def apply_rotation2(angles, kx, ky, kz=None, ndims=None, mask=None):
     if ndims == 2:
         kx_new = torch.zeros_like(kx, device=device)
         ky_new = torch.zeros_like(ky, device=device)
-        #kx_new = kx.clone().detach()
-        #ky_new = ky.clone().detach()
         kz_new = None
         for i in range(kx.shape[0]):
             ang = torch.deg2rad(angles[i])
@@ -480,7 +478,7 @@ if __name__ == '__main__':
     kx_init, ky_init, kz_init, grid_size = build_kspace(im_size, sampling_rate, device=device)
 
     # Movements
-    n_movements = np.minimum(50, grid_size[0])
+    n_movements = np.minimum(10, grid_size[0])
     prob = n_movements/grid_size[0]
     probs = torch.tensor([prob, 1.0-prob], dtype=dtype, device=device)
     log_probs = torch.log(probs + 1e-12)
