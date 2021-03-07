@@ -84,7 +84,7 @@ def sample_angles(log_std, n_samples, ndims, dtype=torch.float32, device=None):
 
 def sample_trans(log_std, n_samples, ndims, dtype=torch.float32, device=None):
     """Sample translations from a normal distribution."""
-    return torch.exp(log_std) * torch.randn((grid_size[0],ndims), dtype=dtype, device=device)
+    return torch.exp(log_std) * torch.randn((n_samples,ndims), dtype=dtype, device=device)
 
 def gen_masks(n_movements, locs, grid_size, use_torch=True):
     """Generate k-space masks."""
@@ -424,8 +424,8 @@ if __name__ == '__main__':
 
     # Load image
     #image = shepp_logan_phantom().astype(np.complex)
-    image = utils.load_png('./data/sample_2d.png').astype(np.complex)
-    #image = utils.load_nii_image('./data/sample_3d.nii.gz')
+    #image = utils.load_png('./data/sample_2d.png').astype(np.complex)
+    image = utils.load_nii_image('./data/sample_3d.nii.gz')
     #image = zoom(image, 0.3).astype(np.complex)
     ndims = len(image.shape)
     im_size = image.shape
